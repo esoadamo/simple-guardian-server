@@ -4,4 +4,4 @@ venv*
 data/profiles/
 data/db.db
 *.log
-*.db
+db/

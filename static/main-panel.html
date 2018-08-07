@@ -2,12 +2,13 @@
 <html>
 
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <link rel="shortcut icon" type="image/png" href="/static/icon.png"/>
-    <title>Main panel - Simple Guardian</title>
-    <style>
-    html, body {
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" type="image/png" href="/static/icon.png" />
+  <title>Main panel - Simple Guardian</title>
+  <style>
+    html,
+    body {
       width: 100%;
       height: 100%;
       margin: 0;
@@ -37,7 +38,7 @@
     .device {
       border: 1px solid gray;
     }
-    </style>
+  </style>
 </head>
 
 <body>
@@ -57,5 +58,30 @@
     </div>
   </div>
 </body>
+
+<script src="/static/socket.io.js"></script>
+<script>
+  window.onload = () => {
+    socket = io();
+    socket.on('askForSecret', (mySid) => {
+      let xhttp = new XMLHttpRequest();
+      xhttp.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          socket.emit('login', xhttp.responseText);
+        }
+      };
+      xhttp.open("GET", `/api/getSidSecret?sid=${encodeURIComponent(mySid)}`, true);
+      xhttp.send();
+    });
+
+    socket.on('login', (success) => {
+      if (!success){
+        alert('your connection has been rejected');
+        return;
+      }
+      console.log('logged in');
+    });
+  }
+</script>
 
 </html>
