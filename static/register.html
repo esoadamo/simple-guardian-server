@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link rel="shortcut icon" type="image/png" href="/static/icon.png"/>
+    <title>Registration - Simple Guardian</title>
+    <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'helvetica', sans-serif;
+      font-size: 25px;
+    }
+
+    body, form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+
+    input {
+      font-family: 'helvetica', sans-serif;
+      text-align: center;
+      font-size: 1em;
+      height: 1.8em;
+      min-width: 80%;
+      margin-bottom: 10px;
+    }
+
+    input[type=submit]{
+      margin-top: 50px;
+    }
+    </style>
+</head>
+
+<body>
+  <h2>registration to the simple guardian</h2>
+  <form method="post">
+    <input type="text" name="user" placeholder="username" />
+    <input type="email" name="mail" placeholder="mail" />
+    <input type="password" name="password" placeholder="password" />
+    <input type="password" placeholder="password-repeat" />
+    <p class="error_msg">{{ error_msg }}</p>
+    <input type="submit" value="register" />
+  </form>
+</body>
+
+</html>
