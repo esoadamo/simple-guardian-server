@@ -3,6 +3,7 @@ import socketio
 import eventlet.wsgi
 from http_socket_server import HTTPSocketServer
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import joinedload
 import bcrypt
 import os
 import json
@@ -67,7 +68,7 @@ def login_user(mail, password):
 
 
 def does_need_login():
-    if 'mail' in session and User.query.filter_by(mail=session['mail']).first is not None:
+    if 'mail' in session and User.query.filter_by(mail=session['mail']).first() is not None:
         return False
     return redirect(url_for('login'))
 
@@ -182,9 +183,26 @@ def login_client_socket(sid, secret):
 
 
 @sio.on('listDevices')
-def list_devices(sid, data):
+def list_devices(sid):
     if not check_socket_login(sid):
         return
+    # emit dict of device names and uids
+    sio.emit('deviceList', {device.uid: device.name for device in User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
+        joinedload('devices')).first().devices}, room=sid)
+
+
+@sio.on('newDevice')
+def new_device(sid, device_name):
+    if not check_socket_login(sid):
+        return
+    while True:
+        device_uid = uuid4().hex
+        if Device.query.filter_by(uid=device_uid).first() is None:
+            break
+    device = Device(name=device_name, uid=device_uid, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first())
+    db.session.add(device)
+    db.session.commit()
+    list_devices(sid)
 
 
 def save_db():

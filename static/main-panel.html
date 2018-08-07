@@ -23,7 +23,7 @@
       height: 100%;
     }
 
-    .deviceSelection {
+    #deviceSelection {
       border-top: 2px solid black;
       height: 100%;
       flex-grow: 1;
@@ -43,7 +43,7 @@
 
 <body>
   <div class="mainPanel">
-    <div class="deviceSelection">
+    <div id="deviceSelection">
       <div class="device">
         <div class="deviceName">My best server</div>
         <div class="deviceOnlineStatus">online</div>
@@ -61,8 +61,9 @@
 
 <script src="/static/socket.io.js"></script>
 <script>
+  const $ = document.querySelector.bind();
   window.onload = () => {
-    socket = io();
+    const socket = io();
     socket.on('askForSecret', (mySid) => {
       let xhttp = new XMLHttpRequest();
       xhttp.onreadystatechange = function() {
@@ -75,12 +76,40 @@
     });
 
     socket.on('login', (success) => {
-      if (!success){
+      if (!success) {
         alert('your connection has been rejected');
         return;
       }
-      console.log('logged in');
+      socket.emit('listDevices');
     });
+    socket.on('deviceList', (devices) => {
+      let deviceSelection = document.querySelector('#deviceSelection');
+      deviceSelection.innerHTML = '';
+      for (let deviceId of Object.keys(devices)) {
+        let deviceName = devices[deviceId];
+        let deviceFrame = document.createElement('div');
+        deviceFrame.classList.add("device");
+        deviceFrame.dataset.deviceId = deviceId;
+        deviceFrame.id = `device-${deviceId}`;
+        let deviceNameFrame = document.createElement('div');
+        deviceNameFrame.classList.add("deviceName");
+        deviceNameFrame.textContent = deviceName;
+        deviceFrame.appendChild(deviceNameFrame);
+        deviceSelection.appendChild(deviceFrame);
+      }
+      let deviceFrame = document.createElement('div');
+      deviceFrame.classList.add("device");
+      let btnAddNewDevice = document.createElement('span');
+      btnAddNewDevice.textContent = 'add new device';
+      deviceFrame.appendChild(btnAddNewDevice);
+      deviceSelection.appendChild(deviceFrame);
+      btnAddNewDevice.onclick = () => {
+        let deviceName = prompt("how the new device shall be named?");
+        if (deviceName === null)
+          return;
+        socket.emit('newDevice', deviceName);
+      }
+    })
   }
 </script>
 
