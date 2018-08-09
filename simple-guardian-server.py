@@ -1,4 +1,4 @@
-from flask import Flask, render_template, session, request, redirect, url_for, send_from_directory
+from flask import Flask, render_template, session, request, redirect, url_for, send_from_directory, abort
 import socketio
 import eventlet.wsgi
 from http_socket_server import HTTPSocketServer
@@ -15,7 +15,7 @@ import shlex
 
 DIR_DATABASES = os.path.abspath('db')
 CONFIG = {
-    'port': 5000
+    'port': 7221
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}
@@ -157,6 +157,20 @@ def homepage():
     return send_from_directory('static', 'welcome.html')
 
 
+@app.route("/api/<user_mail>/new_device/<device_id>")
+def login_new_device(user_mail, device_id):
+    user = User.query.filter_by(mail=user_mail).first()
+    if user is None:
+        abort(404)
+    device = Device.query.filter_by(user=user, uid=device_id).first()
+    if device is None or device.installed:  # if device is logged in already, we cannot login anymore
+        abort(404)
+    device.secret = uuid4().hex
+    device.installed = True
+    db.session.commit()
+    return json.dumps({'device_id': device_id, 'device_secret': device.secret})
+
+
 def check_socket_login(sid):
     return sid in SID_LOGGED_IN
 
@@ -226,6 +240,26 @@ def get_device_info(sid, data):
     sio.emit('deviceInfo', device_info, room=sid)
 
 
+class HSSOperator:
+    sid_device_id_link = {}
+
+    @staticmethod
+    def init():
+        hss.on('login', HSSOperator.login)
+
+    @staticmethod
+    def login(sid, data):
+        if 'uid' not in data and 'secret' not in data:
+            hss.emit(sid, 'login', False)
+            return
+        device = Device.query.filter_by(uid=data['uid'], secret=data['secret']).first()
+        if device is None:
+            hss.emit(sid, 'login', False)
+            return
+        HSSOperator.sid_device_id_link[sid] = device.id
+        hss.emit(sid, 'login', True)
+
+
 def save_db():
     with open(os.path.join(DIR_DATABASES, 'config.json'), 'w') as f:
         json.dump(CONFIG, f, indent=1)
@@ -249,4 +283,4 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
-    eventlet.wsgi.server(eventlet.listen(('', CONFIG['port'])), socketio.Middleware(sio, app))
+    eventlet.wsgi.server(eventlet.listen(('', 7224)), socketio.Middleware(sio, app))
