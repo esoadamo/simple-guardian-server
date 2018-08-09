@@ -29,6 +29,8 @@ class HTTPSocketServer:
                 if request.form.get('action', '') == 'disconnect':
                     del self._clients[request.args['sid']]
                     return 'ok'
+            if self._clients[request.args['sid']]['queue'].empty():
+                return json.dumps({'action': 'retry'})
             return self._clients[request.args['sid']]['queue'].get()
 
     def on(self, event_name, func):

@@ -256,18 +256,24 @@ class HSSOperator:
     @staticmethod
     def init():
         hss.on('login', HSSOperator.login)
+        hss.on('connect', HSSOperator.connect)
 
     @staticmethod
-    def login(sid, data):
+    def login(soc, data):
+        data = json.loads(data)
         if 'uid' not in data and 'secret' not in data:
-            hss.emit(sid, 'login', False)
+            soc.emit('login', False)
             return
         device = Device.query.filter_by(uid=data['uid'], secret=data['secret']).first()
         if device is None:
-            hss.emit(sid, 'login', False)
+            soc.emit('login', False)
             return
-        HSSOperator.sid_device_id_link[sid] = device.id
-        hss.emit(sid, 'login', True)
+        HSSOperator.sid_device_id_link[soc.sid] = device.id
+        soc.emit('login', True)
+
+    @staticmethod
+    def connect(sid):
+        print(sid, 'connected')
 
 
 def save_db():
@@ -293,4 +299,5 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
+    HSSOperator.init()
     eventlet.wsgi.server(eventlet.listen(('', 7224)), socketio.Middleware(sio, app))
