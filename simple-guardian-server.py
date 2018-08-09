@@ -9,6 +9,9 @@ import os
 import json
 import random
 from uuid import uuid4
+import zlib
+import base64
+import shlex
 
 DIR_DATABASES = os.path.abspath('db')
 CONFIG = {
@@ -203,6 +206,24 @@ def new_device(sid, device_name):
     db.session.add(device)
     db.session.commit()
     list_devices(sid)
+
+
+@sio.on('getDeviceInfo')
+def get_device_info(sid, data):
+    if not check_socket_login(sid):
+        return
+    device_id = data.get('deviceId', '')
+    server_address = data.get('serverAddress', '')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_info = {'config': device.config, 'deviceId': device_id, 'installed': device.installed}
+    if not device.installed:
+        login_url = '%s/api/%s/new_device/%s' % (server_address, user.mail, device_id)
+        device_info.update(
+            {'loginKey': '"%s"' % shlex.quote(login_url), 'autoinstallUrl': '"%s"' % shlex.quote(login_url + '/auto')})
+    sio.emit('deviceInfo', device_info, room=sid)
 
 
 def save_db():

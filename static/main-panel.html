@@ -29,7 +29,7 @@
       flex-grow: 1;
     }
 
-    .deviceInfo {
+    #deviceInfo {
       border-top: 2px solid black;
       border-left: 2px solid black;
       flex-grow: 4;
@@ -38,23 +38,30 @@
     .device {
       border: 1px solid gray;
     }
+
+    .tabHidden {
+      visibility: hidden;
+      position: fixed;
+      top: 0;
+      right: -100%;
+    }
   </style>
 </head>
 
 <body>
   <div class="mainPanel">
     <div id="deviceSelection">
+      <!--
       <div class="device">
         <div class="deviceName">My best server</div>
         <div class="deviceOnlineStatus">online</div>
       </div>
-      <div class="device">
-        <div class="deviceName">My second best server</div>
-        <div class="deviceOnlineStatus">offline</div>
-      </div>
+    -->
+      loading your devices...
     </div>
-    <div class="deviceInfo">
-      info
+    <div id="deviceInfo">
+     <p>welcome to the simple guardian control panel</p>
+     <p>select or add device to control it</p>
     </div>
   </div>
 </body>
@@ -96,6 +103,11 @@
         deviceNameFrame.textContent = deviceName;
         deviceFrame.appendChild(deviceNameFrame);
         deviceSelection.appendChild(deviceFrame);
+
+        deviceFrame.onclick = () => socket.emit('getDeviceInfo', {
+          deviceId,
+          'serverAddress': `${window.location.protocol}//${window.location.host}`
+        });
       }
       let deviceFrame = document.createElement('div');
       deviceFrame.classList.add("device");
@@ -109,7 +121,45 @@
           return;
         socket.emit('newDevice', deviceName);
       }
-    })
+    });
+
+    socket.on('deviceInfo', (deviceData) => {
+      let deviceInfo = document.querySelector('#deviceInfo');
+      deviceInfo.innerHTML = '';
+      let divTabs = document.createElement('div');
+      let divTabsNames = document.createElement('div');
+      let tabs = document.createElement('div');
+
+      divTabs.appendChild(divTabsNames);
+      divTabs.appendChild(tabs);
+      function addTab(name, contentDiv){
+        let spanName = document.createElement('span');
+        spanName.textContent = name;
+        divTabsNames.appendChild(spanName);
+        contentDiv.classList.add('tabHidden');
+        spanName.onclick = () =>{
+          for (let visibleTab of document.querySelectorAll('.tabVisible')){
+            visibleTab.classList.remove('tabVisible');
+            visibleTab.classList.add('tabHidden');
+          }
+          contentDiv.classList.add('tabVisible');
+        }
+      }
+      if (!deviceInfo.installed) {
+        deviceInfo.innerHTML = `
+        <p>it seems that this device is not installed/logged in yet</p>
+        <p>to automaticly install simple guardian on your device, run</p>
+        <code>wget -qO-  ${deviceData.autoinstallUrl}/auto | python3 -</code>
+        <p>if you are already installed, you can login by running</p>
+        <code>simple-guardian-client login ${deviceData.loginKey}</code>
+        `;
+      }
+      if (config in deviceInfo){
+        let codeConfig = document.createElement('code');
+        codeConfig.textContent = deviceInfo.config;
+        addTab('config', codeConfig);
+      }
+    });
   }
 </script>
 
