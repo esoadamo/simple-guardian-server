@@ -140,7 +140,7 @@
         let deviceName = prompt("how the new device shall be named?");
         if (deviceName === null)
           return;
-        socket.emit('newDevice', deviceName);
+        socket.emit('deviceNew', deviceName);
       }
     });
 
@@ -187,6 +187,18 @@
         codeConfig.textContent = deviceData.config;
         addTab('config', codeConfig);
       }
+
+      // Delete device tab
+      let deleteButtonDiv = document.createElement('div');
+      deleteButtonDiv.style.display = "flex";
+      deleteButtonDiv.style.alignItems = "center";
+      deleteButtonDiv.style.justifyContent = "center";
+      let deleteButton = document.createElement('button');
+      deleteButton.textContent = 'i sure want to delete this device';
+      deleteButton.onclick = () => socket.emit('deviceDelete', deviceData.deviceId);
+
+      deleteButtonDiv.appendChild(deleteButton);
+      addTab('delete', deleteButtonDiv);
 
       deviceInfo.appendChild(divTabs);
     });

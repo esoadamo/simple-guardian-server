@@ -1,17 +1,17 @@
-from flask import Flask, render_template, session, request, redirect, url_for, send_from_directory, abort
-import socketio
+import json
+import os
+import random
+import shlex
+from uuid import uuid4
+
+import bcrypt
 import eventlet.wsgi
-from http_socket_server import HTTPSocketServer
+import socketio
+from flask import Flask, render_template, session, request, redirect, url_for, send_from_directory, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
-import bcrypt
-import os
-import json
-import random
-from uuid import uuid4
-import zlib
-import base64
-import shlex
+
+from http_socket_server import HTTPSocketServer
 
 DIR_DATABASES = os.path.abspath('db')
 CONFIG = {
@@ -168,7 +168,8 @@ def login_new_device(user_mail, device_id):
     device.secret = uuid4().hex
     device.installed = True
     db.session.commit()
-    return json.dumps({'device_id': device_id, 'device_secret': device.secret})
+    return json.dumps({'service': 'simple-guardian',
+                       'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
 
 def check_socket_login(sid):
@@ -208,8 +209,8 @@ def list_devices(sid):
         joinedload('devices')).first().devices}, room=sid)
 
 
-@sio.on('newDevice')
-def new_device(sid, device_name):
+@sio.on('deviceNew')
+def device_new(sid, device_name):
     if not check_socket_login(sid):
         return
     while True:
@@ -218,6 +219,15 @@ def new_device(sid, device_name):
             break
     device = Device(name=device_name, uid=device_uid, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first())
     db.session.add(device)
+    db.session.commit()
+    list_devices(sid)
+
+
+@sio.on('deviceDelete')
+def device_delete(sid, device_id):
+    if not check_socket_login(sid):
+        return
+    Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
     db.session.commit()
     list_devices(sid)
 
