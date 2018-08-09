@@ -256,7 +256,7 @@ class HSSOperator:
     @staticmethod
     def init():
         hss.on('login', HSSOperator.login)
-        hss.on('connect', HSSOperator.connect)
+        hss.on('disconnect', HSSOperator.disconnect)
 
     @staticmethod
     def login(soc, data):
@@ -272,8 +272,10 @@ class HSSOperator:
         soc.emit('login', True)
 
     @staticmethod
-    def connect(sid):
-        print(sid, 'connected')
+    def disconnect(soc):
+        print('disconnected')
+        if soc.sid in HSSOperator.sid_device_id_link:
+            del HSSOperator.sid_device_id_link[soc.sid]
 
 
 def save_db():
