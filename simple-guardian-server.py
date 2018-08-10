@@ -38,6 +38,22 @@ class User(db.Model):
     admin = db.Column(db.Boolean, nullable=False, default=False)
     password = db.Column(db.Text, unique=False, nullable=False)
 
+    @staticmethod
+    def login(mail, password):
+        user = User.query.filter_by(mail=mail).first()
+        if user is None:
+            raise LoginException('this user does not exist')
+        if not bcrypt.checkpw(password, user.password):
+            raise LoginException('this combination of user and password is unknown to me')
+        session.permanent = True
+        session['mail'] = mail
+
+    @staticmethod
+    def does_need_login():
+        if 'mail' in session and User.query.filter_by(mail=session['mail']).first() is not None:
+            return False
+        return redirect(url_for('login'))
+
 
 # noinspection PyUnresolvedReferences
 class Device(db.Model):
@@ -50,6 +66,42 @@ class Device(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
 
+    def is_online(self) -> bool:
+        return self.id in HSSOperator.sid_device_id_link.values()
+
+    @staticmethod
+    @sio.on('listDevices')
+    def list_for_user(sid):
+        if not check_socket_login(sid):
+            return
+        # emit dict of device names and uids
+        sio.emit('deviceList',
+                 {device.uid: device.name for device in User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
+                     joinedload('devices')).first().devices}, room=sid)
+
+    @staticmethod
+    @sio.on('deviceNew')
+    def create_new(sid, device_name):
+        if not check_socket_login(sid):
+            return
+        while True:
+            device_uid = uuid4().hex
+            if Device.query.filter_by(uid=device_uid).first() is None:
+                break
+        device = Device(name=device_name, uid=device_uid, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first())
+        db.session.add(device)
+        db.session.commit()
+        Device.list_for_user(sid)
+
+    @staticmethod
+    @sio.on('deviceDelete')
+    def device_delete(sid, device_id):
+        if not check_socket_login(sid):
+            return
+        Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
+        db.session.commit()
+        Device.list_for_user(sid)
+
 
 # noinspection PyUnresolvedReferences
 class Rule(db.Model):
@@ -60,22 +112,6 @@ class Rule(db.Model):
     official = db.Column(db.Boolean, nullable=False, default=False)
 
 
-def login_user(mail, password):
-    user = User.query.filter_by(mail=mail).first()
-    if user is None:
-        raise LoginException('this user does not exist')
-    if not bcrypt.checkpw(password, user.password):
-        raise LoginException('this combination of user and password is unknown to me')
-    session.permanent = True
-    session['mail'] = mail
-
-
-def does_need_login():
-    if 'mail' in session and User.query.filter_by(mail=session['mail']).first() is not None:
-        return False
-    return redirect(url_for('login'))
-
-
 @app.route("/api/serviceName")
 def get_service_name():
     return "simple-guardian-server"
@@ -83,7 +119,7 @@ def get_service_name():
 
 @app.route("/api/getSidSecret")
 def get_new_sid():
-    needs_login = does_need_login()
+    needs_login = User.does_need_login()
     if needs_login:
         return needs_login
     if 'sid' not in request.args:
@@ -96,7 +132,7 @@ def get_new_sid():
 
 @app.route('/control')
 def control_panel():
-    needs_login = does_need_login()
+    needs_login = User.does_need_login()
     if needs_login:
         return needs_login
     return send_from_directory('static', 'main-panel.html')
@@ -121,7 +157,7 @@ def login():
                     raise KeyError()
             except KeyError:
                 raise LoginException('send mail and password at least')
-            login_user(mail, password)
+            User.login(mail, password)
             return redirect(url_for('control_panel'))
         except LoginException as e:
             error_msg = str(e)
@@ -145,7 +181,7 @@ def register():
                 raise LoginException('this user already exists')
             db.session.add(User(mail=mail, password=bcrypt.hashpw(password, bcrypt.gensalt())))
             db.session.commit()
-            login_user(mail, password)
+            User.login(mail, password)
             return redirect(url_for('control_panel'))
         except LoginException as e:
             error_msg = str(e)
@@ -200,38 +236,6 @@ def login_client_socket(sid, secret):
     sio.emit('login', True, room=sid)
 
 
-@sio.on('listDevices')
-def list_devices(sid):
-    if not check_socket_login(sid):
-        return
-    # emit dict of device names and uids
-    sio.emit('deviceList', {device.uid: device.name for device in User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
-        joinedload('devices')).first().devices}, room=sid)
-
-
-@sio.on('deviceNew')
-def device_new(sid, device_name):
-    if not check_socket_login(sid):
-        return
-    while True:
-        device_uid = uuid4().hex
-        if Device.query.filter_by(uid=device_uid).first() is None:
-            break
-    device = Device(name=device_name, uid=device_uid, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first())
-    db.session.add(device)
-    db.session.commit()
-    list_devices(sid)
-
-
-@sio.on('deviceDelete')
-def device_delete(sid, device_id):
-    if not check_socket_login(sid):
-        return
-    Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
-    db.session.commit()
-    list_devices(sid)
-
-
 @sio.on('getDeviceInfo')
 def get_device_info(sid, data):
     if not check_socket_login(sid):
@@ -273,7 +277,6 @@ class HSSOperator:
 
     @staticmethod
     def disconnect(soc):
-        print('disconnected')
         if soc.sid in HSSOperator.sid_device_id_link:
             del HSSOperator.sid_device_id_link[soc.sid]
 
