@@ -2,7 +2,9 @@ import json
 import os
 import random
 import shlex
+import time
 from uuid import uuid4
+from queue import Queue
 
 import bcrypt
 import eventlet.wsgi
@@ -25,6 +27,54 @@ sio = socketio.Server()
 app = Flask(__name__)
 hss = HTTPSocketServer(app)
 db = SQLAlchemy(app)
+
+
+class AppRunning:
+    app_running = [True]
+
+    @staticmethod
+    def is_running() -> bool:
+        return len(AppRunning.app_running) > 0
+
+    @staticmethod
+    def set_running(val: bool):
+        if val:
+            AppRunning.app_running.append(True)
+        else:
+            AppRunning.app_running.clear()
+
+    @staticmethod
+    def sleep_while_running(seconds):
+        while AppRunning.is_running() and seconds > 0:
+            sleep = min(1, seconds)
+            time.sleep(sleep)
+            seconds -= sleep
+
+
+class AsyncSio:
+    to_send = Queue()
+
+    @staticmethod
+    def init():
+        sio.start_background_task(AsyncSio._background_task)
+
+    @staticmethod
+    def _background_task():
+        while AppRunning.is_running():
+            eventlet.sleep(1)
+            while not AsyncSio.to_send.empty():
+                el = AsyncSio.to_send.get()
+                sio.emit(el['event'], el['data'], room=el['room'])
+
+    @staticmethod
+    def emit(event, data=None, room=None):
+        """
+        Allow us to send async sio emits
+        :param event: name of event to emit
+        :param data: which data to send
+        :param room: and to whom to send it
+        """
+        AsyncSio.to_send.put({'event': event, 'data': data, 'room': room})
 
 
 class LoginException(Exception):
@@ -69,15 +119,23 @@ class Device(db.Model):
     def is_online(self) -> bool:
         return self.id in HSSOperator.sid_device_id_link.values()
 
+    def get_sid(self):
+        vals = HSSOperator.sid_device_id_link.values()
+        if self.id not in vals:
+            return None
+        return list(HSSOperator.sid_device_id_link.keys())[list(vals).index(self.id)]
+
     @staticmethod
     @sio.on('listDevices')
-    def list_for_user(sid):
+    def list_for_user(sid, async=False):
         if not check_socket_login(sid):
             return
         # emit dict of device names and uids
-        sio.emit('deviceList',
-                 {device.uid: device.name for device in User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
-                     joinedload('devices')).first().devices}, room=sid)
+        f_emit = sio.emit if not async else AsyncSio.emit
+        f_emit('deviceList',
+                 {device.uid: {'name': device.name, 'online': device.is_online()} for device in
+                  User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
+                      joinedload('devices')).first().devices}, room=sid)
 
     @staticmethod
     @sio.on('deviceNew')
@@ -254,6 +312,18 @@ def get_device_info(sid, data):
     sio.emit('deviceInfo', device_info, room=sid)
 
 
+@sio.on('getAttacks')
+def get_device_attacks(sid, data):
+    if not check_socket_login(sid):
+        return
+    device_id = data.get('deviceId', '')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    device_sid = device.get_sid()
+    if device_sid is not None:
+        hss.emit(device_sid, 'getAttacks', {'userSid': sid, 'before': data.get('attacksBefore', 0)})
+
+
 class HSSOperator:
     sid_device_id_link = {}
 
@@ -261,6 +331,21 @@ class HSSOperator:
     def init():
         hss.on('login', HSSOperator.login)
         hss.on('disconnect', HSSOperator.disconnect)
+        hss.on('attacks', HSSOperator.attacks)
+
+    @staticmethod
+    def is_logged_in(soc):
+        return soc.sid in HSSOperator.sid_device_id_link
+
+    @staticmethod
+    def attacks(soc, data):
+        if not HSSOperator.is_logged_in(soc):
+            return
+        data = json.loads(data)
+        client_sid = data.get('userSid', '')
+        if client_sid not in SID_LOGGED_IN:
+            return
+        AsyncSio.emit('attacks', {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid, 'attacks': data.get('attacks')}, room=client_sid)
 
     @staticmethod
     def login(soc, data):
@@ -274,11 +359,23 @@ class HSSOperator:
             return
         HSSOperator.sid_device_id_link[soc.sid] = device.id
         soc.emit('login', True)
+        user_mail = device.user.mail
+        if user_mail in SID_LOGGED_IN.values():
+            for sid, mail in SID_LOGGED_IN.items():
+                if mail == user_mail:
+                    Device.list_for_user(sid, async=True)
 
     @staticmethod
     def disconnect(soc):
         if soc.sid in HSSOperator.sid_device_id_link:
+            device = Device.query.filter_by(uid=HSSOperator.sid_device_id_link[soc.sid]).first()
             del HSSOperator.sid_device_id_link[soc.sid]
+            if device is not None:
+                user_mail = device.user.mail
+                if user_mail in SID_LOGGED_IN.values():
+                    for sid, mail in SID_LOGGED_IN.items():
+                        if mail == user_mail:
+                            Device.list_for_user(sid, async=True)
 
 
 def save_db():
@@ -305,4 +402,5 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     HSSOperator.init()
-    eventlet.wsgi.server(eventlet.listen(('', 7224)), socketio.Middleware(sio, app))
+    AsyncSio.init()
+    eventlet.wsgi.server(eventlet.listen(('', 7225)), socketio.Middleware(sio, app))
