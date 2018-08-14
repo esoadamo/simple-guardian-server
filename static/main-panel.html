@@ -231,6 +231,74 @@
       currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
     });
 
+    socket.on('bans', (data) => {
+      if (data.deviceId !== currentDeviceData.deviceId)
+        return;
+      let bans = data.bans;
+
+      let headers = ['time', 'ip', 'attacks count'];
+
+      function createRow(data) {
+        let tr = document.createElement('tr');
+
+        function addColumn(text, isHTMLCode = false) {
+          let td = document.createElement('td');
+          if (isHTMLCode)
+            td.innerHTML = text;
+          else
+            td.textContent = text;
+          tr.appendChild(td);
+        }
+
+        for (let header of headers)
+          switch (header) {
+            case 'ip':
+              addColumn(data.ip);
+              break;
+            case 'time':
+              let date = new Date(data.time * 1000);
+              let text = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${formatNumber(date.getHours(), 2)}:${formatNumber(date.getMinutes(), 2)}:${formatNumber(date.getSeconds(), 2)}`;
+              addColumn(text);
+              break;
+            case 'attacks count':
+              addColumn(data.attacksCount);
+              break;
+            default:
+              addColumn('');
+          }
+        return tr;
+      }
+
+      for (let data of bans) {
+        let row = createRow(data);
+        row.dataset.id = data.id;
+        if (currentDeviceData.lastBanId === null)
+          currentDeviceData.lastBanId = data.id;
+        else
+          currentDeviceData.lastBanId = Math.min(currentDeviceData.lastBanId, data.id);
+        currentDeviceData.bansRows.push(row);
+      }
+
+      currentDeviceData.bansRows.sort((a, b) => {
+        return parseInt(b.dataset.id) - parseInt(a.dataset.id);
+      });
+
+      currentDeviceData.tableBans.innerHTML = '';
+      let headerRow = document.createElement('tr');
+      for (let header of headers) {
+        let td = document.createElement('th');
+        td.textContent = header;
+        headerRow.appendChild(td);
+      }
+      currentDeviceData.tableBans.appendChild(headerRow);
+
+      for (let row of currentDeviceData.bansRows)
+        currentDeviceData.tableBans.appendChild(row);
+
+      currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
+      currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
+    });
+
     socket.on('deviceInfo', (deviceData) => {
       let deviceInfo = document.querySelector('#deviceInfo');
       deviceInfo.innerHTML = '';
@@ -295,6 +363,31 @@
         divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
         divAttacks.appendChild(currentDeviceData.tableAttacks); -
         addTab('attacks', divAttacks);
+
+        // Add bans tab
+        let divBans = document.createElement('div');
+        currentDeviceData.btnFetchOlderBans = document.createElement('span');
+        currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
+        currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
+        currentDeviceData.lastBanId = null;
+        currentDeviceData.bansRows = [];
+
+        function fetchOlderBans() {
+          if (currentDeviceData.btnFetchOlderBans.dataset.fetching != 'nope')
+            return;
+          currentDeviceData.btnFetchOlderBans.dataset.fetching = 'yup';
+          currentDeviceData.btnFetchOlderBans.textContent = 'asking device for bans...';
+          socket.emit('getBans', {
+            'deviceId': deviceData.deviceId,
+            'bansBefore': currentDeviceData.lastBanId
+          });
+        }
+        fetchOlderBans();
+        currentDeviceData.btnFetchOlderBans.onclick = fetchOlderBans;
+        currentDeviceData.tableBans = document.createElement('table');
+        divBans.appendChild(currentDeviceData.btnFetchOlderBans);
+        divBans.appendChild(currentDeviceData.tableBans); -
+        addTab('bans', divBans);
       }
       if ('config' in deviceData) {
         let configFrame = document.createElement('div');
