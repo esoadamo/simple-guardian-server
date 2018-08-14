@@ -91,6 +91,10 @@
 <script>
   const $ = document.querySelector.bind();
 
+  function isUndefined(v){
+    return typeof(v) === 'unedfined';
+  }
+
   function formatNumber(num, places) {
       let n = num.toString();
       while (n.length < places)
@@ -102,7 +106,7 @@
     const socket = io();
 
     const currentDeviceData = {
-      lastAttackFetchTime: Date.now() / 1000
+      lastAttackId: null
     };
     socket.on('askForSecret', (mySid) => {
       let xhttp = new XMLHttpRequest();
@@ -197,15 +201,17 @@
         return tr;
       }
 
-      let rows = [];
-
       for (let data of attacks) {
         let row = createRow(data);
         row.dataset.id = data.id;
-        rows.push(row);
+        if (currentDeviceData.lastAttackId === null)
+          currentDeviceData.lastAttackId = data.id;
+        else
+          currentDeviceData.lastAttackId = Math.min(currentDeviceData.lastAttackId, data.id);
+        currentDeviceData.attacksRows.push(row);
       }
 
-      rows.sort((a, b) => {
+      currentDeviceData.attacksRows.sort((a, b) => {
         return parseInt(b.dataset.id) - parseInt(a.dataset.id);
       });
 
@@ -218,7 +224,7 @@
       }
       currentDeviceData.tableAttacks.appendChild(headerRow);
 
-      for (let row of rows)
+      for (let row of currentDeviceData.attacksRows)
         currentDeviceData.tableAttacks.appendChild(row);
 
       currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
@@ -270,7 +276,8 @@
         currentDeviceData.btnFetchOlderAttacks = document.createElement('span');
         currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
         currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
-        lastAttackFetchTime = Date.now() / 1000;
+        currentDeviceData.lastAttackId = null;
+        currentDeviceData.attacksRows = [];
 
         function fetchOlderAttacks() {
           if (currentDeviceData.btnFetchOlderAttacks.dataset.fetching != 'nope')
@@ -279,20 +286,28 @@
           currentDeviceData.btnFetchOlderAttacks.textContent = 'asking device for attacks...';
           socket.emit('getAttacks', {
             'deviceId': deviceData.deviceId,
-            'attacksBefore': currentDeviceData.lastAttackFetchTime
+            'attacksBefore': currentDeviceData.lastAttackId
           });
         }
         fetchOlderAttacks();
         currentDeviceData.btnFetchOlderAttacks.onclick = fetchOlderAttacks;
         currentDeviceData.tableAttacks = document.createElement('table');
         divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
-        divAttacks.appendChild(currentDeviceData.tableAttacks);
+        divAttacks.appendChild(currentDeviceData.tableAttacks);-
         addTab('attakcs', divAttacks);
       }
       if ('config' in deviceData) {
-        let codeConfig = document.createElement('code');
-        codeConfig.textContent = deviceData.config;
-        addTab('config', codeConfig);
+        let configFrame = document.createElement('div');
+        let codeConfig = document.createElement('textarea');
+        let btnConfigPush = document.createElement('button');
+
+        codeConfig.value = JSON.stringify(JSON.parse(deviceData.config), null, 4);
+        btnConfigPush.textContent = 'push config';
+
+        configFrame.appendChild(codeConfig);
+        configFrame.appendChild(btnConfigPush);
+
+        addTab('config', configFrame);
       }
 
       // Delete device tab
