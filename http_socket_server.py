@@ -55,7 +55,7 @@ class HTTPSocketServer:
         item.append(func)
         self._listeners[event_name] = item
 
-    def emit(self, sid, event_name, data):
+    def emit(self, sid, event_name, data=None):
         if sid not in self._clients:
             return
         self._clients[sid]['queue'].put(json.dumps({'action': 'event', 'name': event_name, 'data': data}))
@@ -77,7 +77,7 @@ class HSocket:
         self.server = socket_server
         self.sid = sid
 
-    def emit(self, function_name, data):
+    def emit(self, function_name, data=None):
         self.server.emit(self.sid, function_name, data)
 
 

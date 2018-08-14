@@ -104,6 +104,15 @@ class User(db.Model):
             return False
         return redirect(url_for('login'))
 
+    @staticmethod
+    def list_sids_by_mail(user_mail: str) -> list:
+        sids = []
+        if user_mail in SID_LOGGED_IN.values():
+            for sid, mail in SID_LOGGED_IN.items():
+                if mail == user_mail:
+                    sids.append(sid)
+        return sids
+
 
 # noinspection PyUnresolvedReferences
 class Device(db.Model):
@@ -319,9 +328,27 @@ def get_device_attacks(sid, data):
     device_id = data.get('deviceId', '')
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
     device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
     device_sid = device.get_sid()
     if device_sid is not None:
         hss.emit(device_sid, 'getAttacks', {'userSid': sid, 'before': data.get('attacksBefore', 0)})
+
+
+@sio.on('configUpdate')
+def get_device_attacks(sid, data):
+    if not check_socket_login(sid):
+        return
+    device_id = data.get('deviceId', '')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    device.config = data.get('config', '{}')
+    db.session.commit()
+    if device_sid is not None:
+        hss.emit(device_sid, 'config', device.config)
 
 
 class HSSOperator:
@@ -359,11 +386,8 @@ class HSSOperator:
             return
         HSSOperator.sid_device_id_link[soc.sid] = device.id
         soc.emit('login', True)
-        user_mail = device.user.mail
-        if user_mail in SID_LOGGED_IN.values():
-            for sid, mail in SID_LOGGED_IN.items():
-                if mail == user_mail:
-                    Device.list_for_user(sid, async=True)
+        soc.emit('config', device.config)
+        [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
     def disconnect(soc):
@@ -371,11 +395,7 @@ class HSSOperator:
             device = Device.query.filter_by(uid=HSSOperator.sid_device_id_link[soc.sid]).first()
             del HSSOperator.sid_device_id_link[soc.sid]
             if device is not None:
-                user_mail = device.user.mail
-                if user_mail in SID_LOGGED_IN.values():
-                    for sid, mail in SID_LOGGED_IN.items():
-                        if mail == user_mail:
-                            Device.list_for_user(sid, async=True)
+                [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
 
 def save_db():

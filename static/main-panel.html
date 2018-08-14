@@ -91,16 +91,16 @@
 <script>
   const $ = document.querySelector.bind();
 
-  function isUndefined(v){
+  function isUndefined(v) {
     return typeof(v) === 'unedfined';
   }
 
   function formatNumber(num, places) {
-      let n = num.toString();
-      while (n.length < places)
-        n = '0' + n;
-      return n;
-    }
+    let n = num.toString();
+    while (n.length < places)
+      n = '0' + n;
+    return n;
+  }
 
   window.onload = () => {
     const socket = io();
@@ -293,18 +293,46 @@
         currentDeviceData.btnFetchOlderAttacks.onclick = fetchOlderAttacks;
         currentDeviceData.tableAttacks = document.createElement('table');
         divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
-        divAttacks.appendChild(currentDeviceData.tableAttacks);-
-        addTab('attakcs', divAttacks);
+        divAttacks.appendChild(currentDeviceData.tableAttacks); -
+        addTab('attacks', divAttacks);
       }
       if ('config' in deviceData) {
         let configFrame = document.createElement('div');
         let codeConfig = document.createElement('textarea');
         let btnConfigPush = document.createElement('button');
+        let btnConfigNice = document.createElement('button');
 
-        codeConfig.value = JSON.stringify(JSON.parse(deviceData.config), null, 4);
+        function isConfigValid() {
+          try {
+            JSON.parse(codeConfig.value);
+            return true;
+          } catch {
+            alert('this config is not valid JSON');
+            return false;
+          }
+        }
+
+        codeConfig.value = JSON.stringify(JSON.parse(deviceData.config), null, 2);
         btnConfigPush.textContent = 'push config';
+        btnConfigNice.textContent = 'make config nice';
+
+        btnConfigNice.onclick = () => {
+          if (!isConfigValid())
+            return;
+          codeConfig.value = JSON.stringify(JSON.parse(codeConfig.value), null, 2);
+        }
+
+        btnConfigPush.onclick = () => {
+          if (!isConfigValid())
+            return;
+          socket.emit('configUpdate', {
+            'deviceId': deviceData.deviceId,
+            'config': JSON.stringify(JSON.parse(codeConfig.value))
+          });
+        }
 
         configFrame.appendChild(codeConfig);
+        configFrame.appendChild(btnConfigNice);
         configFrame.appendChild(btnConfigPush);
 
         addTab('config', configFrame);
