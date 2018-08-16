@@ -275,6 +275,19 @@ def login_new_device(user_mail, device_id):
                        'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
 
+@app.route("/api/<user_mail>/new_device/<device_id>/auto")
+def autoinstall_new_device(user_mail, device_id):
+    user = User.query.filter_by(mail=user_mail).first()
+    if user is None:
+        abort(404)
+    device = Device.query.filter_by(user=user, uid=device_id).first()
+    if device is None or device.installed:  # if device is logged in already, we cannot login anymore
+        abort(404)
+    login_key = request.base_url[:-5] # remove /auto
+    return render_template('autoinstall.py', zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
+                           login_key=login_key)
+
+
 def check_socket_login(sid):
     return sid in SID_LOGGED_IN
 

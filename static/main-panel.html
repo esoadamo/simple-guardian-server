@@ -350,7 +350,7 @@
           `
         <p>it seems that this device is not installed/logged in yet</p>
         <p>to automaticly install simple guardian on your device, run</p>
-        <code>wget -qO-  ${deviceData.autoinstallUrl}/auto | python3 -</code>
+        <code>wget -qO-  ${deviceData.autoinstallUrl}| sudo python3 -</code>
         <p>if you are already installed, you can login by running</p>
         <code>simple-guardian-client login ${deviceData.loginKey}</code>
         `;
@@ -422,7 +422,7 @@
           try {
             JSON.parse(codeConfig.value);
             return true;
-          } catch {
+          } catch (e) {
             alert('this config is not valid JSON');
             return false;
           }
