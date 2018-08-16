@@ -349,6 +349,46 @@ def get_device_bans(sid, data):
         hss.emit(device_sid, 'getBans', {'userSid': sid, 'before': data.get('bansBefore', 0)})
 
 
+@sio.on('getUpdateInfo')
+def get_device_update_info(sid, device_id):
+    if not check_socket_login(sid):
+        return
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    if device_sid is not None:
+        hss.emit(device_sid, 'get_update_information', sid)
+
+
+@sio.on('update')
+def device_send_update(sid, device_id):
+    if not check_socket_login(sid):
+        return
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    if device_sid is not None:
+        hss.emit(device_sid, 'update')
+
+
+@sio.on('updateMaster')
+def device_send_beta_update(sid, device_id):
+    if not check_socket_login(sid):
+        return
+    print('i')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    if device_sid is not None:
+        hss.emit(device_sid, 'update_master')
+
+
 @sio.on('configUpdate')
 def get_device_attacks(sid, data):
     if not check_socket_login(sid):
@@ -374,6 +414,7 @@ class HSSOperator:
         hss.on('disconnect', HSSOperator.disconnect)
         hss.on('attacks', HSSOperator.attacks)
         hss.on('bans', HSSOperator.bans)
+        hss.on('update_info', HSSOperator.update_info)
 
     @staticmethod
     def is_logged_in(soc):
@@ -400,6 +441,18 @@ class HSSOperator:
         AsyncSio.emit('bans',
                       {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
                        'bans': data.get('bans')}, room=client_sid)
+
+    @staticmethod
+    def update_info(soc, data):
+        if not HSSOperator.is_logged_in(soc):
+            return
+        data = json.loads(data)
+        client_sid = data.get('userSid', '')
+        if client_sid not in SID_LOGGED_IN:
+            return
+        data.update({'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid})
+        del data['userSid']
+        AsyncSio.emit('updateInfo', data, room=client_sid)
 
     @staticmethod
     def login(soc, data):

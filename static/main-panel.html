@@ -102,6 +102,14 @@
     return n;
   }
 
+  function createButton(text, appendTo, onclick, id=null){
+    let el = document.createElement('button');
+    el.textContent = text;
+    appendTo.appendChild(el);
+    el.onclick = onclick;
+    el.id = id;
+  }
+
   window.onload = () => {
     const socket = io();
 
@@ -229,6 +237,14 @@
 
       currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
       currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
+    });
+
+    socket.on('updateInfo', (data) => {
+      if (data.deviceId !== currentDeviceData.deviceId)
+        return;
+      currentDeviceData.tabUpdates.innerHTML = `<p>Installed version is ${data.versionCurrent}, newest is ${data.versionLatest}<p>`;
+      createButton("update", currentDeviceData.tabUpdates, () => socket.emit('update', currentDeviceData.deviceId));
+      createButton("beta update", currentDeviceData.tabUpdates, () => socket.emit('updateMaster', currentDeviceData.deviceId));
     });
 
     socket.on('bans', (data) => {
@@ -388,6 +404,13 @@
         divBans.appendChild(currentDeviceData.btnFetchOlderBans);
         divBans.appendChild(currentDeviceData.tableBans); -
         addTab('bans', divBans);
+
+
+        // Add updates tab
+        currentDeviceData.tabUpdates = document.createElement('div');
+        currentDeviceData.tabUpdates.textContent = 'awaiting response from device';
+        socket.emit('getUpdateInfo', deviceData.deviceId);
+        addTab('update', currentDeviceData.tabUpdates);
       }
       if ('config' in deviceData) {
         let configFrame = document.createElement('div');
