@@ -39,9 +39,7 @@ class HTTPSocketServer:
             if request.args['sid'] not in self._clients:
                 return json.dumps({'action': 'disconnect'})
             self._clients[request.args['sid']]['accessTime'] = time.time()
-            print(request.method)
             if request.method == 'POST':
-                print(request.form)
                 if request.form.get('action', '') == 'event':
                     self._run_listener(request.args['sid'], request.form['name'], request.form['data'])
                     return 'ok'
