@@ -46,6 +46,7 @@ class HTTPSocketServer:
                 if request.form.get('action', '') == 'disconnect':
                     self._disconnect(request.args['sid'])
                     return 'ok'
+                return 'invalid post'
             if self._clients[request.args['sid']]['queue'].empty():
                 return json.dumps({'action': 'retry'})
             return self._clients[request.args['sid']]['queue'].get()
