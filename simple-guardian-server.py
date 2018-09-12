@@ -205,6 +205,14 @@ def control_panel():
     return render_template('main-panel.html', username=session.get('mail', 'undefined'))
 
 
+@app.route('/user')
+def user_data():
+    needs_login = User.does_need_login()
+    if needs_login:
+        return needs_login
+    return render_template('user.html', username=session.get('mail', 'undefined'), mail=session.get('mail', 'undefined'))
+
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -517,4 +525,5 @@ if __name__ == '__main__':
     init_db()
     HSSOperator.init()
     AsyncSio.init()
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
     eventlet.wsgi.server(eventlet.listen(('', 7225)), socketio.Middleware(sio, app))

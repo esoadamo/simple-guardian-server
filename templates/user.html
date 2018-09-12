@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" type="image/png" href="/static/icon.png" />
+  <title>User settings - Simple Guardian</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'helvetica', sans-serif;
+      font-size: 25px;
+    }
+
+    .upperMenu {
+      display: flex;
+      justify-content: space-between;
+      background: #cccccc;
+      font-size: 18px;
+    }
+
+    .formDiv {
+      display: flex;
+      justify-content: center;
+      min-height: 70%;
+    }
+
+    form {
+      display: flex;
+      justify-content: center;
+      flex-direction: column;
+      min-width: 60%;
+    }
+
+    input {
+      font-size: 20px;
+      height: 1.5em;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="upperMenu">
+    <span>logged in as {{ username }}</span>
+    <a class="btn" href="/logout">logout</a>
+  </div>
+  <div class="formDiv">
+    <form method="post">
+      <input name="mail" id="mail" type="email" value="{{ mail }}" placeholder="email" /><label><input name="reallyChangeMail" id="chckMail" type="checkbox">really change my mail</input></label>
+      <input name="passNew" id="passNew" type="password" placeholder="new password" />
+      <input id="passRetype" type="password" placeholder="retype new password" />
+      <input name="passCurrent" id="passCurrent" type="password" placeholder="current password" />
+      <input type="submit" value="send" />
+    </form>
+  </div>
+</body>
+
+<script>
+  const $ = document.querySelector.bind(document);
+
+  function elementHide(el) {
+    if (typeof(el.dataset.hideData) !== "undefined")
+      return;
+    el.dataset.hideData = JSON.stringify({
+      v: el.style.visibility,
+      p: el.style.position,
+      t: el.style.top
+    });
+    el.style.visibility = "hidden";
+    el.style.position = "fixed";
+    el.style.top = "-1000%;"
+  }
+
+  function elementShow(el) {
+    if (typeof(el.dataset.hideData) === "undefined")
+      return;
+    let hideData = JSON.parse(el.dataset.hideData);
+    el.style.visibility = hideData.v;
+    el.style.position = hideData.p;
+    el.style.top = hideData.t;
+    delete el.dataset.hideData;
+  }
+
+  function checkPasswordsSame() {
+    if ((passNew.value.length) && (passRetype.value === passNew.value)) {
+      let colSamePasswords = '#18dcc4';
+      passRetype.style.background = colSamePasswords;
+      passNew.style.background = colSamePasswords;
+      elementShow(passCurrent);
+    } else {
+      passRetype.style.background = null;
+      passNew.style.background = null;
+      elementHide(passCurrent);
+    }
+  }
+
+  let passNew = $("#passNew");
+  let passCurrent = $("#passCurrent");
+  let passRetype = $("#passRetype");
+  let chckMail = $("#chckMail");
+  let mail = $("#mail");
+
+  for (let el of [passCurrent, passRetype, chckMail.parentElement])
+    elementHide(el);
+
+  passNew.onkeyup = () => {
+    checkPasswordsSame();
+    if (passNew.value.length)
+      elementShow(passRetype);
+    else
+      for (let el of [passCurrent, passRetype])
+        elementHide(el);
+  };
+
+  passRetype.onkeyup = () => {
+    checkPasswordsSame();
+  };
+
+  mail.onkeyup = () => {
+    if (mail.value === "{{ mail }}") {
+      elementHide(chckMail.parentElement);
+      chckMail.checked = false;
+    } else {
+      elementShow(chckMail.parentElement);
+    }
+  }
+</script>
+
+</html>
