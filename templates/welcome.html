@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" type="image/png" href="/static/icon.png" />
+  <title>Simple Guardian</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: url('/static/wings.png');
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 100% 100%;
+    }
+
+    .menuButtons {
+      display: flex;
+      min-width: 30%;
+      justify-content: space-around;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>welcome{% if logged_in %}, {{ username }},{% endif %} to the Simple Guardian</h1> {% if not logged_in %}
+  <h2>please login or register to continue</h2>
+  <div class="menuButtons"><a class="btn" href="/login">login</a><a class="btn" href="/register">register</a></div>
+  {% else %}
+  <div class="menuButtons"><a class="btn" href="/control">control panel</a><a class="btn" href="/logout">logout</a></div>
+  {% endif %}
+</body>
+
+</html>

@@ -202,7 +202,7 @@ def control_panel():
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
-    return send_from_directory('static', 'main-panel.html')
+    return render_template('main-panel.html', username=session.get('mail', 'undefined'))
 
 
 @app.route('/logout')
@@ -257,7 +257,8 @@ def register():
 
 @app.route("/")
 def homepage():
-    return send_from_directory('static', 'welcome.html')
+    logged_in = not User.does_need_login()
+    return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
 
 
 @app.route("/api/<user_mail>/new_device/<device_id>")

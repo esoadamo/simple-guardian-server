@@ -68,16 +68,29 @@
     }
 
     table {
-  width: 100%;
-  text-align: center;
-}
-td, th {
-  border: 1px solid black;
-}
+      width: 100%;
+      text-align: center;
+    }
+
+    td,
+    th {
+      border: 1px solid black;
+    }
+
+    .upperMenu {
+      display: flex;
+      justify-content: space-between;
+      background: #cccccc;
+      font-size: 18px;
+    }
   </style>
 </head>
 
 <body>
+  <div class="upperMenu">
+    <span>logged in as {{ username }}</span>
+    <a class="btn" href="/logout">logout</a>
+  </div>
   <div class="mainPanel">
     <div id="deviceSelection">
       <!--
@@ -110,7 +123,7 @@ td, th {
     return n;
   }
 
-  function createButton(text, appendTo, onclick, id=null){
+  function createButton(text, appendTo, onclick, id = null) {
     let el = document.createElement('button');
     el.textContent = text;
     appendTo.appendChild(el);
