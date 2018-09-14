@@ -221,6 +221,8 @@ def logout():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if not User.does_need_login():
+        return redirect(url_for('control_panel'))
     error_msg = ""
     if request.method == "POST":
 
@@ -241,6 +243,8 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if not User.does_need_login():
+        return redirect(url_for('control_panel'))
     error_msg = ""
     if request.method == "POST":
         try:

@@ -23,3 +23,8 @@
   background: #cccccc;
   font-size: 18px;
 }
+
+.errorMsg {
+  color: #f6546a;
+  font-style: italic;
+}
