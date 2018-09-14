@@ -1,7 +1,18 @@
-.btn {
-  color: #cf893f;
-  border: 1px solid  #cf893f;
+:root {
+    --btn-color:  #cf893f;
+    --btn-background: #faf3eb;
+}
+
+.btn, input[type="submit"] {
+  color: var(--btn-color);
+  border: 1px solid var(--btn-color);
+  background: var(--btn-background);
   padding: 3px;
   text-decoration: none;
   margin-right: 1px;
+  cursor: pointer;
+}
+
+.btn:hover, input[type="submit"]:hover{
+  filter: brightness(1.1);
 }

@@ -2,13 +2,14 @@
 <html>
 
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <link rel="shortcut icon" type="image/png" href="/static/icon.png"/>
-    <link rel="stylesheet" href="/static/global.css">
-    <title>Registration - Simple Guardian</title>
-    <style>
-    html, body {
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" type="image/png" href="/static/icon.png" />
+  <link rel="stylesheet" href="/static/global.css">
+  <title>Registration - Simple Guardian</title>
+  <style>
+    html,
+    body {
       width: 100%;
       height: 100%;
       margin: 0;
@@ -17,7 +18,8 @@
       font-size: 25px;
     }
 
-    body, form {
+    body,
+    form {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -34,10 +36,10 @@
       margin-bottom: 10px;
     }
 
-    input[type=submit]{
+    input[type=submit] {
       margin-top: 50px;
     }
-    </style>
+  </style>
 </head>
 
 <body>
@@ -49,6 +51,7 @@
     <input type="password" placeholder="password-repeat" />
     <p class="error_msg">{{ error_msg }}</p>
     <input type="submit" value="register" />
+    <a class="btn" href="/login">i wanna login instead</a>
   </form>
 </body>
 
