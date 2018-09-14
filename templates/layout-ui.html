@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" type="image/png" href="/static/icon.png" />
+  <link rel="stylesheet" href="/static/global.css">
+  <title>{% block title %}{% endblock %}Simple Guardian</title>
+  {% block headers %} {% endblock %} {% block styles %} {% endblock %}
+</head>
+
+<body>
+  <div class="upperMenu">
+    <span>logged in as {{ username }}</span>
+    <div>
+      <a class="btn" href="/control">control panel</a>
+      <a class="btn" href="/user">user config</a>
+      <a class="btn" href="/logout">logout</a>
+    </div>
+  </div>
+  {% block content %} {% endblock %}
+</body>
+
+{% block js %} {% endblock %}
+
+</html>

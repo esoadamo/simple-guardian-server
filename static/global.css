@@ -16,3 +16,10 @@
 .btn:hover, input[type="submit"]:hover{
   filter: brightness(1.1);
 }
+
+.upperMenu {
+  display: flex;
+  justify-content: space-between;
+  background: #cccccc;
+  font-size: 18px;
+}
