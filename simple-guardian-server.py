@@ -142,9 +142,10 @@ class Device(db.Model):
         # emit dict of device names and uids
         f_emit = sio.emit if not async else AsyncSio.emit
         f_emit('deviceList',
-                 {device.uid: {'name': device.name, 'online': device.is_online()} for device in
-                  User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
-                      joinedload('devices')).first().devices}, room=sid)
+               {device.uid: {'name': device.name, 'installed': device.installed,
+                             'online': False if not device.installed else device.is_online()} for device in
+                User.query.filter_by(mail=SID_LOGGED_IN[sid]).options(
+                    joinedload('devices')).first().devices}, room=sid)
 
     @staticmethod
     @sio.on('deviceNew')
@@ -210,7 +211,8 @@ def user_data():
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
-    return render_template('user.html', username=session.get('mail', 'undefined'), mail=session.get('mail', 'undefined'))
+    return render_template('user.html', username=session.get('mail', 'undefined'),
+                           mail=session.get('mail', 'undefined'))
 
 
 @app.route('/logout')
@@ -296,10 +298,10 @@ def autoinstall_new_device(user_mail, device_id):
     device = Device.query.filter_by(user=user, uid=device_id).first()
     if device is None or device.installed:  # if device is logged in already, we cannot login anymore
         abort(404)
-    login_key = request.base_url[:-5] # remove /auto
+    login_key = request.base_url[:-5]  # remove /auto
     response = make_response(render_template('autoinstall.py',
-                             zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
-                             login_key=login_key))
+                                             zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
+                                             login_key=login_key))
     response.headers['Content-Type'] = 'text/plain'
     return response
 
@@ -457,7 +459,9 @@ class HSSOperator:
         client_sid = data.get('userSid', '')
         if client_sid not in SID_LOGGED_IN:
             return
-        AsyncSio.emit('attacks', {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid, 'attacks': data.get('attacks')}, room=client_sid)
+        AsyncSio.emit('attacks',
+                      {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
+                       'attacks': data.get('attacks')}, room=client_sid)
 
     @staticmethod
     def bans(soc, data):

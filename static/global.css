@@ -39,3 +39,13 @@ body {
   color: #f6546a;
   font-style: italic;
 }
+
+code {
+  border: 1px solid black;
+  background: #141414;
+  color: #7bfd00;
+  font-style: italic;
+  padding: 5px;
+  font-family: monospace, monotype;
+  font-size: medium;
+}
