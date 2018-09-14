@@ -1,15 +1,5 @@
 {% extends "layout-ui.html" %} {% block title %}Main panel - {% endblock %} {% block styles %}
 <style>
-  html,
-  body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    font-family: 'helvetica', sans-serif;
-    font-size: 25px;
-  }
-
   .mainPanel {
     display: flex;
     width: 100%;
@@ -17,21 +7,28 @@
   }
 
   #deviceSelection {
-    border-top: 2px solid black;
     height: 100%;
     flex-grow: 1;
+    border-right: 1px solid black;
+    margin-right: 1%;
   }
 
   #deviceInfo {
-    border-top: 2px solid black;
-    border-left: 2px solid black;
-    flex-grow: 4;
+    flex-grow: 8;
     display: flex;
     flex-direction: column;
   }
 
   .device {
     border: 1px solid gray;
+    border-radius: 5px;
+    border-left: none;
+    width: 101%;
+    background: white;
+  }
+
+  .deviceCurrent {
+    width: 104%;
   }
 
   .tabHidden {
@@ -82,8 +79,7 @@
     loading your devices...
   </div>
   <div id="deviceInfo">
-    <p>welcome to the simple guardian control panel</p>
-    <p>select or add device to control it</p>
+    <p>connecting to the server....</p>
   </div>
 </div>
 {% endblock %} {% block js %}
@@ -145,7 +141,7 @@
         deviceFrame.id = `device-${deviceId}`;
         let deviceNameFrame = document.createElement('div');
         deviceNameFrame.classList.add("deviceName");
-        deviceNameFrame.textContent = deviceData.name + ` (${deviceData.online ? 'online' : 'offline'})`;
+        deviceNameFrame.textContent = `${deviceData.online ? '💚' : '💔'} ${deviceData.name}`;
         deviceFrame.appendChild(deviceNameFrame);
         deviceSelection.appendChild(deviceFrame);
 
@@ -158,14 +154,31 @@
       deviceFrame.classList.add("device");
       let btnAddNewDevice = document.createElement('span');
       btnAddNewDevice.textContent = 'add new device';
-      deviceFrame.appendChild(btnAddNewDevice);
-      deviceSelection.appendChild(deviceFrame);
       btnAddNewDevice.onclick = () => {
         let deviceName = prompt("how the new device shall be named?");
         if (deviceName === null)
           return;
         socket.emit('deviceNew', deviceName);
       }
+
+      // Test if user already has some devices
+      if (Object.keys(devices).length) {
+        let countOnline = 0;
+        for (let data of Object.values(devices))
+          if (data.online)
+            countOnline++;
+        deviceFrame.appendChild(btnAddNewDevice);
+        deviceInfo.innerHTML = `<p>you have ${Object.keys(devices).length} devices installed</p>
+        <p>${countOnline} of them is online</p>`;
+      } else {
+        btnAddNewDevice.textContent = 'add first device to guard';
+        btnAddNewDevice.className = 'btn';
+        let deviceInfo = document.querySelector('#deviceInfo');
+        deviceInfo.innerHTML = `<p>it seems that you have no device to guard</p>`;
+        deviceInfo.appendChild(btnAddNewDevice);
+      }
+
+      deviceSelection.appendChild(deviceFrame);
     });
 
     socket.on('attacks', (data) => {
