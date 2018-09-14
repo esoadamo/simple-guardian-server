@@ -9,7 +9,7 @@ from queue import Queue
 import bcrypt
 import eventlet.wsgi
 import socketio
-from flask import Flask, render_template, session, request, redirect, url_for, send_from_directory, abort
+from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
 
@@ -293,8 +293,11 @@ def autoinstall_new_device(user_mail, device_id):
     if device is None or device.installed:  # if device is logged in already, we cannot login anymore
         abort(404)
     login_key = request.base_url[:-5] # remove /auto
-    return render_template('autoinstall.py', zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
-                           login_key=login_key)
+    response = make_response(render_template('autoinstall.py',
+                             zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
+                             login_key=login_key))
+    response.headers['Content-Type'] = 'text/plain'
+    return response
 
 
 def check_socket_login(sid):
