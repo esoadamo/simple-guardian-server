@@ -82,11 +82,30 @@ class LoginException(Exception):
 
 
 # noinspection PyUnresolvedReferences
+association_table_user_profile_likes = db.Table('users-profiles_likes', db.Model.metadata,
+                                                db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+                                                db.Column('profile_id', db.Integer, db.ForeignKey('profile.id'))
+                                                )
+
+
+# noinspection PyUnresolvedReferences
+class Profile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    author = db.relationship('User', backref=db.backref('devices', lazy=True))
+    name = db.Column(db.Text, unique=False, nullable=False)
+    config = db.Column(db.Text, unique=False, nullable=False)
+    likes = db.relationship("User", secondary=association_table_user_profile_likes)
+    official = db.Column(db.Boolean, nullable=False, default=False)
+
+
+# noinspection PyUnresolvedReferences
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     mail = db.Column(db.Text, unique=True, nullable=False)
     admin = db.Column(db.Boolean, nullable=False, default=False)
     password = db.Column(db.Text, unique=False, nullable=False)
+    public_profiles = db.relationship("Profile", secondary=association_table_user_profile_likes)
 
     @staticmethod
     def login(mail, password):
@@ -169,15 +188,6 @@ class Device(db.Model):
         Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
         db.session.commit()
         Device.list_for_user(sid)
-
-
-# noinspection PyUnresolvedReferences
-class Rule(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    config = db.Column(db.Text, unique=False, nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    user = db.relationship('User', backref=db.backref('rules', lazy=True))
-    official = db.Column(db.Boolean, nullable=False, default=False)
 
 
 @app.route("/api/serviceName")
