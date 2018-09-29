@@ -12,12 +12,19 @@
 
 <body>
   <div class="upperMenu">
-    <span>logged in as {{ username }}</span>
+      <span>{% if logged_in %}logged in as {{ username }}{% else %}hi, unknown fella{% endif %}</span>
     <div>
       <a class="btn" href="/">homepage</a>
-      <a class="btn" href="/control">control panel</a>
+        {% if logged_in %}
+        <a class="btn" href="/control">control panel</a>
       <a class="btn" href="/user">user config</a>
+        {% endif %}
+        <a class="btn" href="/hub">hub</a>
+        {% if logged_in %}
       <a class="btn" href="/logout">logout</a>
+        {% else %}
+        <a class="btn" href="/login">login</a>
+        {% endif %}
     </div>
   </div>
   {% block content %} {% endblock %}

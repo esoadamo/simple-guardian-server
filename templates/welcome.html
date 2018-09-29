@@ -37,9 +37,12 @@
 <body>
   <h1>welcome{% if logged_in %}, {{ username }},{% endif %} to the Simple Guardian</h1> {% if not logged_in %}
   <h2>please login or register to continue</h2>
-  <div class="menuButtons"><a class="btn" href="/login">login</a><a class="btn" href="/register">register</a></div>
+  <div class="menuButtons"><a class="btn" href="/login">login</a> <a class="btn" href="/hub">hub</a><a class="btn"
+                                                                                                       href="/register">register</a>
+  </div>
   {% else %}
-  <div class="menuButtons"><a class="btn" href="/control">control panel</a><a class="btn" href="/logout">logout</a></div>
+  <div class="menuButtons"><a class="btn" href="/control">control panel</a><a class="btn" href="/hub">hub</a><a
+          class="btn" href="/logout">logout</a></div>
   {% endif %}
 </body>
 

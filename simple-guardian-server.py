@@ -92,7 +92,7 @@ association_table_user_profile_likes = db.Table('users-profiles_likes', db.Model
 class Profile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    author = db.relationship('User', backref=db.backref('devices', lazy=True))
+    author = db.relationship('User', backref=db.backref('profiles', lazy=True))
     name = db.Column(db.Text, unique=False, nullable=False)
     config = db.Column(db.Text, unique=False, nullable=False)
     likes = db.relationship("User", secondary=association_table_user_profile_likes)
@@ -213,7 +213,7 @@ def control_panel():
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
-    return render_template('main-panel.html', username=session.get('mail', 'undefined'))
+    return render_template('main-panel.html', username=session.get('mail', 'undefined'), logged_in=True)
 
 
 @app.route('/user')
@@ -222,7 +222,13 @@ def user_data():
     if needs_login:
         return needs_login
     return render_template('user.html', username=session.get('mail', 'undefined'),
-                           mail=session.get('mail', 'undefined'))
+                           mail=session.get('mail', 'undefined'), logged_in=True)
+
+
+@app.route('/hub')
+def hub_search():
+    return render_template('profile-hub-search.html', username=session.get('mail', 'undefined'),
+                           logged_in=not User.does_need_login())
 
 
 @app.route('/logout')
