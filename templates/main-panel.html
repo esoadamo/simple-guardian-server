@@ -99,8 +99,9 @@
   }
 
   function createButton(text, appendTo, onclick, id = null) {
-    let el = document.createElement('button');
+      let el = document.createElement('span');
     el.textContent = text;
+      el.className = 'btn';
     appendTo.appendChild(el);
     el.onclick = onclick;
     el.id = id;
