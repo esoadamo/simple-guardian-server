@@ -94,6 +94,7 @@ class Profile(db.Model):
     author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     author = db.relationship('User', backref=db.backref('profiles', lazy=True))
     name = db.Column(db.Text, unique=False, nullable=False)
+    description = db.Column(db.Text, unique=False, nullable=False)
     config = db.Column(db.Text, unique=False, nullable=False)
     likes = db.relationship("User", secondary=association_table_user_profile_likes)
     official = db.Column(db.Boolean, nullable=False, default=False)
@@ -231,6 +232,15 @@ def hub_search():
                            logged_in=not User.does_need_login())
 
 
+@app.route('/hub_new')
+def hub_new():
+    needs_login = User.does_need_login()
+    if needs_login:
+        return needs_login
+    return render_template('profile-hub-new.html', username=session.get('mail', 'undefined'),
+                           logged_in=True)
+
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -348,6 +358,13 @@ def login_client_socket(sid, secret):
     SID_LOGGED_IN[sid] = SID_SECRETS[sid]['mail']
     del SID_SECRETS[sid]
     sio.emit('login', True, room=sid)
+
+
+@sio.on('listProfiles')
+def list_profiles(sid, data):
+    if not check_socket_login(sid):
+        return
+    pass  # TODO
 
 
 @sio.on('getDeviceInfo')

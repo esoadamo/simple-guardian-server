@@ -1,0 +1,163 @@
+{% extends "layout-ui.html" %} {% block title %}New Profile - {% endblock %} {% block styles %}
+<style>
+  .mainContent {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 80%;
+    width: 100%;
+  }
+
+  .form {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #cccccc;
+    background-color: #f3f3f3;
+    padding: 20px;
+    border-radius: 5px;
+    min-width: 60%;
+  }
+
+  #btns {
+    margin-top: 10px;
+    display: flex;
+    width: 100%;
+    justify-content: space-around;
+  }
+
+  textarea {
+    height: 2.5em;
+  }
+
+  #profileCode {
+    height: 15em;
+    font-size: 11px;
+    font-family: monospace;
+    visibility: hidden;
+    position: fixed;
+    margin-top: 10px;
+    text-align: left;
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="mainContent">
+  <div class="form">
+    <input id='name' type="text" placeholder="profile name" />
+    <textarea id='description' placeholder="description"></textarea>
+    <hr>
+    <input id='logFile' type="text" placeholder="log file path">
+    <hr>
+    <input type="text" class="rule" placeholder="one rule">
+    <hr id='placeRulesBeforeThis'>
+    <span id='btns'></span>
+    <textarea id="profileCode"></textarea>
+  </div>
+</div>
+{% endblock %} {% block js %}
+<script src="/static/socket.io.js"></script>
+<script>
+  const $ = document.querySelector.bind(document);
+
+
+  const profileCode = $('#profileCode');
+  const btns = $('#btns');
+
+  let profileData = {
+    "unnamed": {
+      "filters": [],
+      "logFile": "",
+      "description": ""
+    }
+  }
+
+  function checkProfileCode(saveData) {
+    let newData = null;
+    let colorBad = '#ffc1c1';
+    try {
+      newData = JSON.parse(profileCode.value);
+    } catch (e) {
+      profileCode.style.background = colorBad;
+      return;
+    }
+    if ((typeof(newData) !== 'object') || (Object.keys(newData).length !== 1) || (Object.keys(newData)[0] == 'unnamed')){
+      profileCode.style.background = colorBad;
+      return;
+    }
+
+    let profileName = Object.keys(newData)[0];
+
+    if (!('description' in newData[profileName]))
+      newData[profileName].description = "";
+
+    if (!('filters' in newData[profileName]) || !('logFile' in newData[profileName])){
+      profileCode.style.background = colorBad;
+      return;
+    }
+
+    if (saveData) {
+      profileData = newData;
+      for (let rule of document.querySelectorAll('.rule')){
+        rule.parentNode.removeChild(rule);
+      }
+      let placeRulesBeforeThis = $('#placeRulesBeforeThis');
+      newData[profileName].filters.push(""); // add empty rule so that user can add his own
+      for (let rule of newData[profileName].filters){
+        let element = document.createElement('input');
+        element.value = rule;
+        element.className = 'rule';
+        element.placeholder = 'another rule';
+        placeRulesBeforeThis.parentNode.insertBefore(element, placeRulesBeforeThis);
+      }
+      $('#name').value = profileName;
+      $('#description').value = newData[profileName].description;
+      $('#logFile').value = newData[profileName].logFile;
+    }
+    profileCode.style.background = '#c4ffcb';
+  }
+
+  profileCode.onchange = () => checkProfileCode(true);
+
+  function isUndefined(v) {
+    return typeof(v) === 'undefined';
+  }
+
+  function formatNumber(num, places) {
+    let n = num.toString();
+    while (n.length < places)
+      n = '0' + n;
+    return n;
+  }
+
+  function createButton(text, appendTo, onclick, id = null) {
+    let el = document.createElement('span');
+    el.textContent = text;
+    el.className = 'btn';
+    appendTo.appendChild(el);
+    el.onclick = onclick;
+    el.id = id;
+    return el;
+  }
+
+  window.onload = () => {
+    createButton("publish", btns, () => {
+
+    });
+    let btnShowCode = createButton("show code", btns, () => {
+      if (btnShowCode.textContent.startsWith("show")) {
+        profileCode.style.visibility = 'visible';
+        profileCode.style.position = 'static';
+        btnShowCode.textContent = 'hide code';
+        profileCode.value = JSON.stringify(profileData, null, 2);
+        checkProfileCode(false);
+      } else {
+        profileCode.style.visibility = 'hidden';
+        profileCode.style.position = 'fixed';
+        btnShowCode.textContent = 'show code';
+      }
+    });
+    createButton("reset", btns, () => {
+      location.reload(true);
+    });
+  }
+</script>
+{% endblock %}
