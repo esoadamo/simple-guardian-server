@@ -42,12 +42,12 @@
 {% endblock %} {% block content %}
 <div class="mainContent">
   <div class="form">
-    <input id='name' type="text" placeholder="profile name" />
-    <textarea id='description' placeholder="description"></textarea>
+    <input id='name' type="text" placeholder="profile name" onchange="parseProfileCode()" />
+    <textarea id='description' placeholder="description" onchange="parseProfileCode()"></textarea>
     <hr>
-    <input id='logFile' type="text" placeholder="log file path">
+    <input id='logFile' type="text" placeholder="log file path" onchange="parseProfileCode()">
     <hr>
-    <input type="text" class="rule" placeholder="one rule">
+    <input type="text" class="rule" placeholder="one rule" onchange="parseProfileCode()">
     <hr id='placeRulesBeforeThis'>
     <span id='btns'></span>
     <textarea id="profileCode"></textarea>
@@ -77,11 +77,11 @@
       newData = JSON.parse(profileCode.value);
     } catch (e) {
       profileCode.style.background = colorBad;
-      return;
+      return false;
     }
-    if ((typeof(newData) !== 'object') || (Object.keys(newData).length !== 1) || (Object.keys(newData)[0] == 'unnamed')){
+    if ((typeof(newData) !== 'object') || (Object.keys(newData).length !== 1) || (Object.keys(newData)[0] == 'unnamed')) {
       profileCode.style.background = colorBad;
-      return;
+      return false;
     }
 
     let profileName = Object.keys(newData)[0];
@@ -89,21 +89,27 @@
     if (!('description' in newData[profileName]))
       newData[profileName].description = "";
 
-    if (!('filters' in newData[profileName]) || !('logFile' in newData[profileName])){
+    if (!('filters' in newData[profileName]) || !('logFile' in newData[profileName])) {
       profileCode.style.background = colorBad;
-      return;
+      return false;
+    }
+
+    if (!newData[profileName].filters.length || !newData[profileName].logFile.length) {
+      profileCode.style.background = colorBad;
+      return false;
     }
 
     if (saveData) {
       profileData = newData;
-      for (let rule of document.querySelectorAll('.rule')){
+      for (let rule of document.querySelectorAll('.rule')) {
         rule.parentNode.removeChild(rule);
       }
       let placeRulesBeforeThis = $('#placeRulesBeforeThis');
       newData[profileName].filters.push(""); // add empty rule so that user can add his own
-      for (let rule of newData[profileName].filters){
+      for (let rule of newData[profileName].filters) {
         let element = document.createElement('input');
         element.value = rule;
+        element.onchange = parseProfileCode;
         element.className = 'rule';
         element.placeholder = 'another rule';
         placeRulesBeforeThis.parentNode.insertBefore(element, placeRulesBeforeThis);
@@ -113,6 +119,35 @@
       $('#logFile').value = newData[profileName].logFile;
     }
     profileCode.style.background = '#c4ffcb';
+    return true;
+  }
+
+  function parseProfileCode() {
+    let subData = {
+      description: $('#description').value,
+      logFile: $('#logFile').value,
+      filters: []
+    }
+    for (let rule of document.querySelectorAll('.rule')) {
+      if (!rule.value.length)
+        rule.parentNode.removeChild(rule);
+      else
+        subData.filters.push(rule.value);
+    }
+
+    let placeRulesBeforeThis = $('#placeRulesBeforeThis');
+    let emptyRule = document.createElement('input');
+    emptyRule.className = 'rule';
+    emptyRule.placeholder = 'one rule';
+    emptyRule.onchange = parseProfileCode;
+    placeRulesBeforeThis.parentNode.insertBefore(emptyRule, placeRulesBeforeThis);
+    profileData = {};
+
+    let profileName = $('#name').value;
+    profileData[profileName.length ? profileName : "unnamed"] = subData;
+
+    profileCode.value = JSON.stringify(profileData, null, 2);
+    checkProfileCode(false);
   }
 
   profileCode.onchange = () => checkProfileCode(true);
@@ -140,7 +175,22 @@
 
   window.onload = () => {
     createButton("publish", btns, () => {
+      if (!checkProfileCode(false)) {
+        alert("Some required fields is not filled. Cannot publish");
+        return;
+      }
 
+      // Post the data to the server
+      let form = document.createElement('form');
+      let formData = document.createElement('input');
+      formData.setAttribute('name', 'profileData');
+      formData.value = JSON.stringify(profileData);
+      form.appendChild(formData);
+      form.setAttribute("method", "post");
+      form.style.visibility = 'hidden';
+      form.style.position = 'fixed';
+      document.body.appendChild(form);
+      form.submit();
     });
     let btnShowCode = createButton("show code", btns, () => {
       if (btnShowCode.textContent.startsWith("show")) {
