@@ -250,6 +250,12 @@ def hub_profile(profile_number: int):
             profile = Profile.query.filter_by(id=profile_number).first()
             if profile is None or profile.author != user:
                 return redirect(url_for('hub_search'))
+
+        if 'delete' in request.form and profile_number != -1:
+            db.session.delete(profile)
+            db.session.commit()
+            return redirect(url_for('hub_my_profiles'))
+
         try:
             profile_data = json.loads(request.form.get('profileData', None))
         except json.JSONDecodeError:

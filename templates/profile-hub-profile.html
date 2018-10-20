@@ -96,10 +96,11 @@
         rule.parentNode.removeChild(rule);
       }
       let placeRulesBeforeThis = $('#placeRulesBeforeThis');
+      let filters = newData[profileName].filters.slice();
       {%if editable %}
-      newData[profileName].filters.push(""); // add empty rule so that user can add his own
+      filters.push(""); // add empty rule so that user can add his own
       {% endif %}
-      for (let rule of newData[profileName].filters) {
+      for (let rule of filters) {
         let element = document.createElement('input');
         element.value = rule;
         element.onchange = parseProfileCode;
@@ -214,6 +215,22 @@
     createButton("reset", btns, () => {
       location.reload(true);
     });
+    {% if profile_exists %}
+    createButton("delete", btns, () => {
+      if (!confirm('do you really want to delete this profile?'))
+        return;
+      let form = document.createElement('form');
+      let formData = document.createElement('input');
+      formData.setAttribute('name', 'delete');
+      formData.value = 'really';
+      form.appendChild(formData);
+      form.setAttribute("method", "post");
+      form.style.visibility = 'hidden';
+      form.style.position = 'fixed';
+      document.body.appendChild(form);
+      form.submit();
+    });
+    {% endif %}
     {% endif %}
 
     profileCode.value = JSON.stringify(profileData);
