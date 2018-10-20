@@ -106,7 +106,6 @@ class User(db.Model):
     mail = db.Column(db.Text, unique=True, nullable=False)
     admin = db.Column(db.Boolean, nullable=False, default=False)
     password = db.Column(db.Text, unique=False, nullable=False)
-    public_profiles = db.relationship("Profile", secondary=association_table_user_profile_likes)
 
     @staticmethod
     def login(mail, password):
@@ -232,13 +231,85 @@ def hub_search():
                            logged_in=not User.does_need_login())
 
 
-@app.route('/hub_new')
-def hub_new():
+@app.route('/hub/<profile_number>', methods=['GET', 'POST'])
+def hub_profile(profile_number: int):
+    try:
+        profile_number = int(profile_number)
+    except ValueError:
+        return redirect(url_for('hub_my_profiles'))
+    needs_login = User.does_need_login()
+    if needs_login and profile_number == -1:
+        return needs_login
+    if request.method == "POST":
+        user = User.query.filter_by(mail=session['mail']).first()
+
+        if profile_number == -1:
+            profile = Profile()
+            db.session.add(profile)
+        else:
+            profile = Profile.query.filter_by(id=profile_number).first()
+            if profile is None or profile.author != user:
+                return redirect(url_for('hub_search'))
+        try:
+            profile_data = json.loads(request.form.get('profileData', None))
+        except json.JSONDecodeError:
+            profile_data = None
+        if profile_data is None:
+            return redirect(url_for('hub_new'))
+        # now check if profile data has all required fields
+        if not isinstance(profile_data, dict):
+            return redirect(url_for('hub_new'))
+        if len(profile_data.keys()) != 1:
+            return redirect(url_for('hub_new'))
+        profile_name = list(profile_data.keys())[0]
+        if not isinstance(profile_data[profile_name], dict):
+            return redirect(url_for('hub_new'))
+        for field in ['logFile', 'filters']:
+            if field not in profile_data[profile_name] or len(profile_data[profile_name][field]) == 0:
+                return redirect(url_for('hub_new'))
+        if 'description' in profile_data[profile_name]:
+            description = profile_data[profile_name]['description']
+            del profile_data[profile_name]['description']
+        else:
+            description = ''
+
+        profile.author = user
+        profile.description = description
+        profile.name = profile_name
+        profile.official = user.admin
+        profile.config = json.dumps(profile_data)
+        db.session.commit()
+        return redirect(url_for('hub_my_profiles'))
+    profile = None if profile_number == -1 else Profile.query.filter_by(id=profile_number).first()
+    if profile is None:
+        profile_data = {'unnamed': {'description': '', 'filters': [], 'logFile': ''}}
+        editable = True
+        profile_exists = False
+    else:
+        profile_data = json.loads(profile.config)
+        profile_data[list(profile_data.keys())[0]]['description'] = profile.description
+        profile_exists = True
+        if needs_login:
+            editable = False
+        else:
+            editable = profile.author == User.query.filter_by(mail=session['mail']).first()
+    return render_template('profile-hub-profile.html', username=session.get('mail', 'undefined'),
+                           logged_in=not needs_login,
+                           profile_data=profile_data,
+                           editable=editable,
+                           profile_exists=profile_exists)
+
+
+@app.route('/hub_my')
+def hub_my_profiles():
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
-    return render_template('profile-hub-new.html', username=session.get('mail', 'undefined'),
-                           logged_in=True)
+    user = User.query.filter_by(mail=session['mail']).first()
+    profiles = user.profiles
+    [profile.__setattr__('likes_num', len(profile.likes)) for profile in profiles]
+    return render_template('profile-hub-my.html', username=session.get('mail', 'undefined'),
+                           logged_in=True, profiles=profiles)
 
 
 @app.route('/logout')

@@ -1,0 +1,92 @@
+{% extends "layout-ui.html" %} {% block title %}Profile Hub - {% endblock %} {% block styles %}
+<style>
+  .mainContent {
+    width: 100%;
+    height: 100%;
+    overflow-y: scroll
+  }
+
+  .searchBox {
+    border: 1px solid black;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+  }
+
+  .searchBox>input {
+    width: 100%;
+  }
+
+  .results {
+    display: flex;
+    flex-direction: column;
+    justify-content: start;
+    align-items: center;
+  }
+
+  .result {
+    border: 1px solid #004772;
+    margin-top: 15px;
+    min-width: 40%;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    background: #fdf9f9;
+    cursor: pointer;
+    border-radius: 5px;
+  }
+
+  .result>div>.name {
+    color: #06a1ff;
+    font-weight: bold;
+  }
+
+  .result>.info {
+    width: 100%;
+    display: flex;
+    justify-content: space-around;
+    color: #000000;
+  }
+
+  .official,
+  .fanmade {
+    background: #8000FF;
+    color: #FFFFFF;
+    padding: 5px;
+    border-radius: 15px;
+    font-style: italic;
+    font-size: 15px;
+  }
+
+  .official {
+    background: #4ea100;
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="mainContent">
+  <div class="searchBox">
+    <a href="hub/-1" class="btn">create new</a>
+  </div>
+  <div class="results">
+    {% for profile in profiles %}
+    <div class="result" onclick="openProfile({{ profile.id }})">
+      <div><a class="name">{{ profile.name }}</a></div>
+      <div class="info"><span>{{ profile.likes_num }} 💓</span><span class="official">✔️ yours</span></div>
+    </div>
+    {% else %}
+    <div class="result">
+      <div><a class="name">this is sad</a></div>
+      <div class="info">you have not created any profile yet</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %} {% block js %}
+<script>
+function openProfile(profileID){
+  window.location.href = "/hub/" + profileID;
+}
+</script>
+{% endblock %}

@@ -1,7 +1,7 @@
 {% extends "layout-ui.html" %} {% block title %}Profile Hub - {% endblock %} {% block styles %}
 <style>
 
-    .mainContent {
+  .mainContent {
         width: 100%;
         height: 100%;
         overflow-y: scroll
@@ -67,76 +67,80 @@
 </style>
 {% endblock %} {% block content %}
 <div class="mainContent">
-    <div class="searchBox">
-        <input id="searchName" type="text" placeholder="what profile are you searching for?"/>
-        <div><span>sort by <select class="btn">
-            <option value="new">newest</option>
-            <option value="best">most loved</option>
-            <option value="old">oldest</option>
-            <option value="worst">least loved</option>
-            </select></span>
-            <a href="hub_new" class="btn">create new</a>
-        </div>
+  <div class="searchBox">
+    <input id="searchName" type="text" placeholder="what profile are you searching for?" />
+    <div><span>sort by <select class="btn">
+          <option value="new">newest</option>
+          <option value="best">most loved</option>
+          <option value="old">oldest</option>
+          <option value="worst">least loved</option>
+        </select></span>
+      {% if logged_in %}
+      <a href="hub/-1" class="btn">create new</a>
+      <a href="hub_my" class="btn">my profiles</a>
+      {% endif %}
     </div>
-    <div class="results">
-        <div class="result">
-            <div><a class="name">Official profile</a></div>
-            <div class="info"><span>25 💓</span><span class="official">✔️ official</span></div>
-        </div>
-        <div class="result">
-            <div><a class="name">Fan profile</a></div>
-            <div class="info"><span>5 💓️</span><span class="fanmade">fan made</span></div>
-        </div>
+  </div>
+  <div class="results">
+    <div class="result">
+      <div><a class="name">Official profile</a></div>
+      <div class="info"><span>25 💓</span><span class="official">✔️ official</span></div>
     </div>
+    <div class="result">
+      <div><a class="name">Fan profile</a></div>
+      <div class="info"><span>5 💓️</span><span class="fanmade">fan made</span></div>
+    </div>
+  </div>
 </div>
 {% endblock %} {% block js %}
 <script src="/static/socket.io.js"></script>
 <script>
-    const $ = document.querySelector.bind();
+  const $ = document.querySelector.bind();
 
-    const searchName = $('#searchName');
-    const searchResults = $('#results');
+  const searchName = $('#searchName');
+  const searchResults = $('#results');
 
-    function isUndefined(v) {
-        return typeof(v) === 'undefined';
-    }
+  function isUndefined(v) {
+    return typeof(v) === 'undefined';
+  }
 
-    function formatNumber(num, places) {
-        let n = num.toString();
-        while (n.length < places)
-            n = '0' + n;
-        return n;
-    }
+  function formatNumber(num, places) {
+    let n = num.toString();
+    while (n.length < places)
+      n = '0' + n;
+    return n;
+  }
 
-    function createButton(text, appendTo, onclick, id = null) {
-        let el = document.createElement('span');
-        el.textContent = text;
-        el.className = 'btn';
-        appendTo.appendChild(el);
-        el.onclick = onclick;
-        el.id = id;
-    }
+  function createButton(text, appendTo, onclick, id = null) {
+    let el = document.createElement('span');
+    el.textContent = text;
+    el.className = 'btn';
+    appendTo.appendChild(el);
+    el.onclick = onclick;
+    el.id = id;
+  }
 
-    window.onload = () => {
-        const socket = io();
-        searchName.onchange = () => {
-            if (!searchName.value.length)
-                return;
-            socket.emit('listProfiles', searchName.value, (profiles) => {
-                searchResults.innerHTML = '';
-                for (let profile of profiles) {
-                    let result = document.createElement('div');
-                    result.className = 'result';
-                    let textOfficial = profile.official ? "<span class=\"official\">✔️ official</span>" :
-                        "<span class = \"fanmade\" > fanmade </span>";
-                    result.innerHTML = `<div><a class="name">${profile.name}</a></div>
+  window.onload = () => {
+    const socket = io();
+    searchName.onchange = () => {
+      if (!searchName.value.length)
+        return;
+      socket.emit('listProfiles', searchName.value, (profiles) => {
+        searchResults.innerHTML = '';
+        for (let profile of profiles) {
+          let result = document.createElement('div');
+          result.className = 'result';
+          let textOfficial = profile.official ? "<span class=\"official\">✔️ official</span>" :
+            "<span class = \"fanmade\" > fanmade </span>";
+          result.innerHTML =
+            `<div><a class="name">${profile.name}</a></div>
                                         <div class="info">
                                             <span>${profile.likes} 💓</span>
                                             ${textOfficial}
                                         </div>`;
-                }
-            });
-        };
-    }
+        }
+      });
+    };
+  }
 </script>
 {% endblock %}

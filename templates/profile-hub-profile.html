@@ -1,4 +1,4 @@
-{% extends "layout-ui.html" %} {% block title %}New Profile - {% endblock %} {% block styles %}
+{% extends "layout-ui.html" %} {% block title %}{%if profile_exists %}Profile{% else %}New Profile{% endif %} - {% endblock %} {% block styles %}
 <style>
   .mainContent {
     display: flex;
@@ -42,15 +42,15 @@
 {% endblock %} {% block content %}
 <div class="mainContent">
   <div class="form">
-    <input id='name' type="text" placeholder="profile name" onchange="parseProfileCode()" />
-    <textarea id='description' placeholder="description" onchange="parseProfileCode()"></textarea>
+    <input id='name' type="text" placeholder="profile name" onchange="parseProfileCode()" {%if not editable %}disabled{% endif %}/>
+    <textarea id='description' placeholder="description" onchange="parseProfileCode()" {%if not editable %}disabled{% endif %}></textarea>
     <hr>
-    <input id='logFile' type="text" placeholder="log file path" onchange="parseProfileCode()">
+    <input id='logFile' type="text" placeholder="log file path" onchange="parseProfileCode()" {%if not editable %}disabled{% endif %}>
     <hr>
-    <input type="text" class="rule" placeholder="one rule" onchange="parseProfileCode()">
+    <input type="text" class="rule" placeholder="one rule" onchange="parseProfileCode()" {%if not editable %}disabled{% endif %}>
     <hr id='placeRulesBeforeThis'>
     <span id='btns'></span>
-    <textarea id="profileCode"></textarea>
+    <textarea id="profileCode" {%if not editable %}disabled{% endif %}></textarea>
   </div>
 </div>
 {% endblock %} {% block js %}
@@ -62,13 +62,9 @@
   const profileCode = $('#profileCode');
   const btns = $('#btns');
 
-  let profileData = {
-    "unnamed": {
-      "filters": [],
-      "logFile": "",
-      "description": ""
-    }
-  }
+  {% autoescape false %}
+  let profileData = {{ profile_data|tojson }};
+  {% endautoescape %}
 
   function checkProfileCode(saveData) {
     let newData = null;
@@ -94,30 +90,37 @@
       return false;
     }
 
-    if (!newData[profileName].filters.length || !newData[profileName].logFile.length) {
-      profileCode.style.background = colorBad;
-      return false;
-    }
-
     if (saveData) {
       profileData = newData;
       for (let rule of document.querySelectorAll('.rule')) {
         rule.parentNode.removeChild(rule);
       }
       let placeRulesBeforeThis = $('#placeRulesBeforeThis');
+      {%if editable %}
       newData[profileName].filters.push(""); // add empty rule so that user can add his own
+      {% endif %}
       for (let rule of newData[profileName].filters) {
         let element = document.createElement('input');
         element.value = rule;
         element.onchange = parseProfileCode;
         element.className = 'rule';
         element.placeholder = 'another rule';
+        {%if not editable %}
+        element.disabled = true;
+        {% endif %}
         placeRulesBeforeThis.parentNode.insertBefore(element, placeRulesBeforeThis);
       }
       $('#name').value = profileName;
       $('#description').value = newData[profileName].description;
       $('#logFile').value = newData[profileName].logFile;
     }
+
+
+    if (!newData[profileName].filters.length || !newData[profileName].logFile.length) {
+      profileCode.style.background = colorBad;
+      return false;
+    }
+
     profileCode.style.background = '#c4ffcb';
     return true;
   }
@@ -174,6 +177,7 @@
   }
 
   window.onload = () => {
+    {%if editable %}
     createButton("publish", btns, () => {
       if (!checkProfileCode(false)) {
         alert("Some required fields is not filled. Cannot publish");
@@ -192,6 +196,7 @@
       document.body.appendChild(form);
       form.submit();
     });
+    {% endif %}
     let btnShowCode = createButton("show code", btns, () => {
       if (btnShowCode.textContent.startsWith("show")) {
         profileCode.style.visibility = 'visible';
@@ -205,9 +210,14 @@
         btnShowCode.textContent = 'show code';
       }
     });
+    {%if editable %}
     createButton("reset", btns, () => {
       location.reload(true);
     });
+    {% endif %}
+
+    profileCode.value = JSON.stringify(profileData);
+    checkProfileCode(true);
   }
 </script>
 {% endblock %}
