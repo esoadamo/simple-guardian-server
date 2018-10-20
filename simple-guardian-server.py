@@ -441,10 +441,11 @@ def login_client_socket(sid, secret):
 
 
 @sio.on('listProfiles')
-def list_profiles(sid, data):
-    if not check_socket_login(sid):
-        return
-    pass  # TODO
+def list_profiles(sid, filter_str):
+    filter_str = "%" + filter_str + "%"
+    sio.emit('profilesList',
+             [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
+              for profile in Profile.query.filter(Profile.name.like(filter_str)).all()], room=sid)
 
 
 @sio.on('getDeviceInfo')
@@ -523,7 +524,6 @@ def device_send_update(sid, device_id):
 def device_send_beta_update(sid, device_id):
     if not check_socket_login(sid):
         return
-    print('i')
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
     device = Device.query.filter_by(uid=device_id, user=user).first()
     if device is None:
