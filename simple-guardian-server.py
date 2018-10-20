@@ -12,6 +12,7 @@ import socketio
 from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
+from datetime import datetime
 
 from http_socket_server import HTTPSocketServer
 
@@ -98,6 +99,7 @@ class Profile(db.Model):
     config = db.Column(db.Text, unique=False, nullable=False)
     likes = db.relationship("User", secondary=association_table_user_profile_likes)
     official = db.Column(db.Boolean, nullable=False, default=False)
+    updated = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 
 # noinspection PyUnresolvedReferences
@@ -284,6 +286,7 @@ def hub_profile(profile_number: int):
         profile.name = profile_name
         profile.official = user.admin
         profile.config = json.dumps(profile_data)
+        profile.updated = datetime.utcnow()
         db.session.commit()
         return redirect(url_for('hub_my_profiles'))
     profile = None if profile_number == -1 else Profile.query.filter_by(id=profile_number).first()
