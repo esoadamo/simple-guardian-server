@@ -123,6 +123,25 @@
 
   window.onload = () => {
     const socket = io();
+      {%
+          if logged_in %}
+      socket.on('askForSecret', (mySid) => {
+          let xhttp = new XMLHttpRequest();
+          xhttp.onreadystatechange = function () {
+              if (this.readyState === 4 && this.status === 200) {
+                  socket.emit('login', xhttp.responseText);
+              }
+          };
+          xhttp.open("GET", `/api/getSidSecret?sid=${encodeURIComponent(mySid)}`, true);
+          xhttp.send();
+      });
+      socket.on('login', (success) => {
+          if (!success)
+              alert('your connection has been rejected');
+      });
+      {%
+          endif %
+      }
     socket.on('profilesList', (profiles) => {
       let results = [];
       searchResults.innerHTML = '';
@@ -139,7 +158,22 @@
         let textOfficialSpan = document.createElement('span');
         textOfficialSpan.innerHTML = textOfficial;
 
-        likes.onclick = () => socket.emit('profileLike', profile.id);
+          likes.onclick = (e) => {
+              {%
+                  if logged_in %}
+              socket.emit('profileLike', profile.id);
+              {% else %
+              }
+              window.location.href = "/login";
+              {%
+                  endif %
+              }
+              e.stopPropagation();
+          }
+
+          socket.on('profileLikeUpdate', (likes) => {
+              likes.textContent = `${likes} 💓`
+          });
 
         info.appendChild(likes);
         info.appendChild(textOfficialSpan);

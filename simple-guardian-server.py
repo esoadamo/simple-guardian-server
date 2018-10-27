@@ -381,8 +381,10 @@ def homepage():
     return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
 
 
-@app.route("/api/<user_mail>/new_device/<device_id>")
+@app.route("/api/<user_mail>/new_device/<device_id>", methods=['GET', 'POST'])
 def login_new_device(user_mail, device_id):
+    if request.method == "GET":
+        return "this is meant to be run by your simple-guardian-client, not by your web browser. sorry."
     user = User.query.filter_by(mail=user_mail).first()
     if user is None:
         abort(404)
@@ -446,6 +448,22 @@ def list_profiles(sid, filter_str):
     sio.emit('profilesList',
              [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
               for profile in Profile.query.filter(Profile.name.like(filter_str)).all()], room=sid)
+
+
+@sio.on('profileLike')
+def update_likes_on_profile(sid, profile_id):
+    if not check_socket_login(sid):
+        return
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    profile = Profile.query.filter_by(id=profile_id).first()
+    if profile is None:
+        return
+    if user in profile.likes:
+        profile.likes.remove(user)
+    else:
+        profile.likes.append(user)
+    db.session.commit()
+    sio.emit('profileLikeUpdate', len(profile.likes), room=sid)
 
 
 @sio.on('getDeviceInfo')
