@@ -61,6 +61,11 @@ class HTTPSocketServer:
             return
         self._clients[sid]['queue'].put(json.dumps({'action': 'event', 'name': event_name, 'data': data}))
 
+    def set_asking_timeout(self, sid, timeout: float):
+        if sid not in self._clients:
+            return
+        self._clients[sid]['queue'].put(json.dumps({'action': 'set_max_msg_interval', 'data': timeout}))
+
     def close(self):
         self._closed = True
 
@@ -80,6 +85,9 @@ class HSocket:
 
     def emit(self, function_name, data=None):
         self.server.emit(self.sid, function_name, data)
+
+    def set_asking_timeout(self, timeout: float):
+        self.server.set_asking_timeout(self.sid, timeout)
 
 
 class AsyncExecuter(Thread):

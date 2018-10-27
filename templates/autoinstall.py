@@ -45,6 +45,10 @@ def main():
     process("usermod -a -G adm simple-guardian")
     print('giving folder permissions to simple-guardian')
     process("chown -R simple-guardian %s" % target_directory)
+    print('giving executing rights on blocker executable and assigning him to the root with setuid')
+    process("chown root:root %s/blocker" % target_directory)
+    process("chmod +x %s/blocker" % target_directory)
+    process("chmod u+s %s/blocker" % target_directory)
     print('creating venv')
     process("%s -m venv %s" % (sys.executable, os.path.join(target_directory, 'venv')))
     pip_path = os.path.join(target_directory, 'venv', 'bin', 'pip')
@@ -87,5 +91,6 @@ if os.geteuid() != 0:
     exit(1)
 if os.system("%s -m pip -V" % sys.executable) != 0 and os.system("%s -m ensurepip" % sys.executable) != 0:
     print('you must install pip AND ensurepip (venv) before running this script')
+    print('on ubuntu/debian system run "apt install -y python3-pip python3-venv"')
     exit(1)
 main()
