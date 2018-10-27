@@ -123,8 +123,7 @@
 
   window.onload = () => {
     const socket = io();
-      {%
-          if logged_in %}
+      {% if logged_in %}
       socket.on('askForSecret', (mySid) => {
           let xhttp = new XMLHttpRequest();
           xhttp.onreadystatechange = function () {
@@ -139,9 +138,7 @@
           if (!success)
               alert('your connection has been rejected');
       });
-      {%
-          endif %
-      }
+      {% endif %}
     socket.on('profilesList', (profiles) => {
       let results = [];
       searchResults.innerHTML = '';
@@ -159,15 +156,11 @@
         textOfficialSpan.innerHTML = textOfficial;
 
           likes.onclick = (e) => {
-              {%
-                  if logged_in %}
+              {% if logged_in %}
               socket.emit('profileLike', profile.id);
-              {% else %
-              }
+              {% else %}
               window.location.href = "/login";
-              {%
-                  endif %
-              }
+              {% endif %}
               e.stopPropagation();
           }
 
