@@ -233,6 +233,30 @@ def hub_search():
                            logged_in=not User.does_need_login())
 
 
+@app.route('/hub/<int:profile_number>/send', methods=['GET', 'POST'])
+def hub_send_profile(profile_number):
+    needs_login = User.does_need_login()
+    if needs_login:
+        return needs_login
+    profile = Profile.query.filter_by(id=profile_number).first()
+    if profile is None:
+        return redirect(url_for('hub_search'))
+    user = User.query.filter_by(mail=session['mail']).first()
+
+    if request.method == "POST":
+        for device in {Device.query.filter_by(id=device_id).first() for device_id in set(request.form.values())}:
+            if device is None:
+                continue
+            config = json.loads(device.config)
+            config.update(json.loads(profile.config))
+            device.config = json.dumps(config)
+        db.session.commit()
+        return redirect(url_for('hub_profile', profile_number=profile_number))
+
+    return render_template('profile-hub-send-to-device.html', username=session.get('mail', 'undefined'),
+                           logged_in=True, devices=user.devices, profile=profile)
+
+
 @app.route('/hub/<profile_number>', methods=['GET', 'POST'])
 def hub_profile(profile_number: int):
     try:

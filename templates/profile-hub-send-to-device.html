@@ -1,0 +1,51 @@
+{% extends "layout-ui.html" %} {% block title %}Select device - {% endblock %} {% block styles %}
+<style>
+  .mainContent {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 80%;
+    width: 100%;
+  }
+
+  .form {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #cccccc;
+    background-color: #f3f3f3;
+    padding: 20px;
+    border-radius: 5px;
+    min-width: 60%;
+  }
+
+  #btns {
+    margin-top: 10px;
+    display: flex;
+    width: 100%;
+    justify-content: space-around;
+  }
+
+</style>
+{% endblock %} {% block content %}
+<div class="mainContent">
+  <form class="form" method="post">
+    <p>where should i send the {{ profile.name }}?</p>
+    {% for device in devices %}
+    <label class="btn"><input type="checkbox" class="chk" name="device-{{ device.id }}" value="{{ device.id }}">{{ device.name }}</label>
+    {% endfor %}
+    <div id='btns'>
+      <span class="btn" onclick="check(true)">mark all</span>
+      <input type="submit" style="height: 2em" value="send">
+      <span class="btn" onclick="check(false)">mark none</span>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block js %}
+<script>
+function check(val){
+  for (let el of document.querySelectorAll('.chk'))
+    el.checked = val;
+}
+</script>
+{% endblock %}

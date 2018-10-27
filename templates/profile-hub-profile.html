@@ -211,6 +211,11 @@
         btnShowCode.textContent = 'show code';
       }
     });
+    {% if logged_in and profile_exists %}
+    createButton("send to device", btns, () => {
+      window.location.href += "/send";
+    });
+    {% endif %}
     {%if editable %}
     createButton("reset", btns, () => {
       location.reload(true);
