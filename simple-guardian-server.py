@@ -27,6 +27,7 @@ SID_LOGGED_IN = {}  # sid: mail
 sio = socketio.Server()
 app = Flask(__name__)
 hss = HTTPSocketServer(app)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
@@ -149,7 +150,7 @@ class Device(db.Model):
     def is_online(self) -> bool:
         return self.id in HSSOperator.sid_device_id_link.values()
 
-    def get_sid(self):
+    def get_sid(self) -> list or None:
         vals = HSSOperator.sid_device_id_link.values()
         if self.id not in vals:
             return None
@@ -453,6 +454,12 @@ def client_disconnect(sid):
     if sid in SID_SECRETS:
         del SID_SECRETS[sid]
     else:
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        for device in user.devices:
+            device_sid = device.get_sid()
+            if device_sid is None:
+                continue
+            hss.set_asking_timeout(device_sid, 15)
         del SID_LOGGED_IN[sid]
 
 
@@ -464,6 +471,13 @@ def login_client_socket(sid, secret):
     SID_LOGGED_IN[sid] = SID_SECRETS[sid]['mail']
     del SID_SECRETS[sid]
     sio.emit('login', True, room=sid)
+
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    for device in user.devices:
+        device_sid = device.get_sid()
+        if device_sid is None:
+            continue
+        hss.set_asking_timeout(device_sid, 5)
 
 
 @sio.on('listProfiles')
@@ -506,6 +520,13 @@ def get_device_info(sid, data):
         device_info.update(
             {'loginKey': '"%s"' % shlex.quote(login_url), 'autoinstallUrl': '"%s"' % shlex.quote(login_url + '/auto')})
     sio.emit('deviceInfo', device_info, room=sid)
+
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    for other_device in user.devices:
+        device_sid = other_device.get_sid()
+        if device_sid is None:
+            continue
+        hss.set_asking_timeout(device_sid, 5 if other_device is not other_device else 2)
 
 
 @sio.on('getAttacks')
