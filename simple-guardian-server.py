@@ -28,6 +28,7 @@ sio = socketio.Server()
 app = Flask(__name__)
 hss = HTTPSocketServer(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 db = SQLAlchemy(app)
 
 
@@ -713,4 +714,6 @@ if __name__ == '__main__':
     HSSOperator.init()
     AsyncSio.init()
     app.config['TEMPLATES_AUTO_RELOAD'] = True
-    eventlet.wsgi.server(eventlet.listen(('', 7225)), socketio.Middleware(sio, app))
+    eventlet.wsgi.server(eventlet.listen(('', 7225)), socketio.Middleware(sio, app), socket_timeout=60)
+    AppRunning.set_running(False)
+    hss.close()
