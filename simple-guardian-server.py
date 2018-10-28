@@ -428,6 +428,7 @@ def login_new_device(user_mail, device_id):
     device.secret = uuid4().hex
     device.installed = True
     db.session.commit()
+    [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
     return json.dumps({'service': 'simple-guardian',
                        'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
