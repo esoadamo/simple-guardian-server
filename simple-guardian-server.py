@@ -8,11 +8,13 @@ from queue import Queue
 
 import bcrypt
 import eventlet.wsgi
-import socketio
 from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
 from datetime import datetime
+
+# noinspection PyPackageRequirements
+import socketio
 
 from http_socket_server import HTTPSocketServer
 
@@ -135,6 +137,10 @@ class User(db.Model):
                 if mail == user_mail:
                     sids.append(sid)
         return sids
+
+    @staticmethod
+    def is_online_by_mail(user_mail: str) -> bool:
+        return user_mail in SID_LOGGED_IN.values()
 
 
 # noinspection PyUnresolvedReferences
@@ -527,7 +533,7 @@ def get_device_info(sid, data):
         device_sid = other_device.get_sid()
         if device_sid is None:
             continue
-        hss.set_asking_timeout(device_sid, 5 if other_device is not other_device else 2)
+        hss.set_asking_timeout(device_sid, 5 if other_device is not device else 2)
 
 
 @sio.on('getAttacks')
@@ -677,6 +683,7 @@ class HSSOperator:
         HSSOperator.sid_device_id_link[soc.sid] = device.id
         soc.emit('login', True)
         soc.emit('config', device.config)
+        soc.set_asking_timeout(5 if User.is_online_by_mail(device.user.mail) else 15)
         [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
