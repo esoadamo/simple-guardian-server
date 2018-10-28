@@ -52,7 +52,7 @@ input, textarea {
   font-style: italic;
 }
 
-code {
+code, .code {
   border: 1px solid black;
   background: #141414;
   color: #7bfd00;

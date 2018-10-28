@@ -39,13 +39,13 @@
   }
 
   #deviceTabs {
-    border: 1px solid black;
     flex-grow: 1;
   }
 
   #deviceTabsNames {
     margin-left: 30px;
     margin-right: 30px;
+    margin-bottom: 20px;
   }
 
   .deviceTab {
@@ -60,6 +60,7 @@
   table {
     width: 100%;
     text-align: center;
+    margin-top: 20px;
   }
 
   td,
@@ -256,6 +257,7 @@
 
       currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
       currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
+      currentDeviceData.btnFetchOlderAttacks.className = 'btn';
     });
 
     socket.on('updateInfo', (data) => {
@@ -332,6 +334,7 @@
 
       currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
       currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
+      currentDeviceData.btnFetchOlderBans.className = 'btn';
     });
 
     socket.on('deviceInfo', (deviceData) => {
@@ -395,6 +398,7 @@
         fetchOlderAttacks();
         currentDeviceData.btnFetchOlderAttacks.onclick = fetchOlderAttacks;
         currentDeviceData.tableAttacks = document.createElement('table');
+        currentDeviceData.tableAttacks.setAttribute('cellspacing', 0);
         divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
         divAttacks.appendChild(currentDeviceData.tableAttacks); -
         addTab('attacks', divAttacks);
@@ -420,6 +424,7 @@
         fetchOlderBans();
         currentDeviceData.btnFetchOlderBans.onclick = fetchOlderBans;
         currentDeviceData.tableBans = document.createElement('table');
+        currentDeviceData.tableBans.setAttribute('cellspacing', 0);
         divBans.appendChild(currentDeviceData.btnFetchOlderBans);
         divBans.appendChild(currentDeviceData.tableBans); -
         addTab('bans', divBans);
@@ -434,8 +439,16 @@
       if ('config' in deviceData) {
         let configFrame = document.createElement('div');
         let codeConfig = document.createElement('textarea');
-        let btnConfigPush = document.createElement('button');
-        let btnConfigNice = document.createElement('button');
+        let btnConfigPush = document.createElement('span');
+        let btnConfigNice = document.createElement('span');
+
+        codeConfig.style.width = '100%';
+        codeConfig.style.height = '30em';
+        codeConfig.style.textAlign = 'left';
+        codeConfig.className = 'code';
+
+        btnConfigPush.className = 'btn';
+        btnConfigNice.className = 'btn';
 
         function isConfigValid() {
           try {
@@ -466,9 +479,9 @@
           });
         }
 
-        configFrame.appendChild(codeConfig);
         configFrame.appendChild(btnConfigNice);
         configFrame.appendChild(btnConfigPush);
+        configFrame.appendChild(codeConfig);
 
         addTab('config', configFrame);
       }
