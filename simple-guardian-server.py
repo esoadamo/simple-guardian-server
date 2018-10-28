@@ -258,6 +258,8 @@ def hub_send_profile(profile_number):
             config = json.loads(device.config)
             config.update(json.loads(profile.config))
             device.config = json.dumps(config)
+            if device.is_online():
+                hss.emit(device.get_sid(), 'config', device.config)
         db.session.commit()
         return redirect(url_for('hub_profile', profile_number=profile_number))
 
@@ -689,7 +691,7 @@ class HSSOperator:
     @staticmethod
     def disconnect(soc):
         if soc.sid in HSSOperator.sid_device_id_link:
-            device = Device.query.filter_by(uid=HSSOperator.sid_device_id_link[soc.sid]).first()
+            device = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
             del HSSOperator.sid_device_id_link[soc.sid]
             if device is not None:
                 [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
