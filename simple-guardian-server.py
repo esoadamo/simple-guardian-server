@@ -523,7 +523,7 @@ def get_device_info(sid, data):
     device = Device.query.filter_by(uid=device_id, user=user).first()
     if device is None:
         return
-    device_info = {'config': device.config, 'deviceId': device_id, 'installed': device.installed}
+    device_info = {'config': device.config, 'deviceId': device_id, 'installed': device.installed, 'name': device.name}
     if not device.installed:
         login_url = '%s/api/%s/new_device/%s' % (server_address, user.mail, device_id)
         device_info.update(
@@ -621,6 +621,22 @@ def get_device_attacks(sid, data):
         hss.emit(device_sid, 'config', device.config)
 
 
+@sio.on('getDeviceStatistics')
+def get_device_attacks(sid, data):
+    if not check_socket_login(sid):
+        return
+    device_id = data.get('deviceId', '')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    device.config = data.get('config', '{}')
+    db.session.commit()
+    if device_sid is not None:
+        hss.emit(device_sid, 'getStatisticInfo', sid)
+
+
 class HSSOperator:
     sid_device_id_link = {}
 
@@ -631,6 +647,7 @@ class HSSOperator:
         hss.on('attacks', HSSOperator.attacks)
         hss.on('bans', HSSOperator.bans)
         hss.on('update_info', HSSOperator.update_info)
+        hss.on('statistic_data', HSSOperator.statistic_data)
 
     @staticmethod
     def is_logged_in(soc):
@@ -659,6 +676,18 @@ class HSSOperator:
         AsyncSio.emit('bans',
                       {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
                        'bans': data.get('bans')}, room=client_sid)
+
+    @staticmethod
+    def statistic_data(soc, data):
+        if not HSSOperator.is_logged_in(soc):
+            return
+        data = json.loads(data)
+        client_sid = data.get('userSid', '')
+        if client_sid not in SID_LOGGED_IN:
+            return
+        AsyncSio.emit('statisticData',
+                      {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
+                       'statisticData': data.get('data')}, room=client_sid)
 
     @staticmethod
     def update_info(soc, data):

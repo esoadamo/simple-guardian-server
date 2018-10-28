@@ -86,7 +86,8 @@
 {% endblock %} {% block js %}
 <script src="/static/socket.io.js"></script>
 <script>
-  const $ = document.querySelector.bind();
+  const $ = document.querySelector.bind(document);
+  let timerStatisticInfo = null;
 
   function isUndefined(v) {
     return typeof(v) === 'unedfined';
@@ -100,9 +101,9 @@
   }
 
   function createButton(text, appendTo, onclick, id = null) {
-      let el = document.createElement('span');
+    let el = document.createElement('span');
     el.textContent = text;
-      el.className = 'btn';
+    el.className = 'btn';
     appendTo.appendChild(el);
     el.onclick = onclick;
     el.id = id;
@@ -112,12 +113,13 @@
     const socket = io();
 
     const currentDeviceData = {
-      lastAttackId: null
+      lastAttackId: null,
+      deviceId: null
     };
     socket.on('askForSecret', (mySid) => {
       let xhttp = new XMLHttpRequest();
       xhttp.onreadystatechange = function() {
-          if (this.readyState === 4 && this.status === 200) {
+        if (this.readyState === 4 && this.status === 200) {
           socket.emit('login', xhttp.responseText);
         }
       };
@@ -175,8 +177,10 @@
           }
 
         deviceFrame.appendChild(btnAddNewDevice);
-        deviceInfo.innerHTML = `<p>you have ${Object.keys(devices).length} devices created</p>
+        if (currentDeviceData.deviceId === null) {
+          deviceInfo.innerHTML = `<p>you have ${Object.keys(devices).length} devices created</p>
         <p>${countInstalled} of them is installed and ${countOnline} online</p>`;
+        }
       } else {
         btnAddNewDevice.textContent = 'add first device to guard';
         btnAddNewDevice.className = 'btn';
@@ -186,6 +190,15 @@
       }
 
       deviceSelection.appendChild(deviceFrame);
+    });
+
+    socket.on('statisticData', (data) => {
+      if (data.deviceId !== currentDeviceData.deviceId)
+        return;
+      let statisticData = data.statisticData;
+      $('#divStatisticInfo').innerHTML = `<h2>${currentDeviceData.name}</h2>
+      <p>attacks today: ${statisticData.attacks.today} (${statisticData.attacks.total} total)</p>
+      <p>bans today: ${statisticData.bans.today} (${statisticData.bans.total} total)</p>`;
     });
 
     socket.on('attacks', (data) => {
@@ -351,6 +364,11 @@
       divTabs.appendChild(divTabsNames);
       divTabs.appendChild(divTabContents);
 
+      if (timerStatisticInfo !== null) {
+        clearInterval(timerStatisticInfo);
+        timerStatisticInfo = null;
+      }
+
       function addTab(name, contentDiv) {
         divTabContents.appendChild(contentDiv);
         let spanName = document.createElement('span');
@@ -377,6 +395,24 @@
         <code>simple-guardian-client login ${deviceData.loginKey}</code>
         `;
       } else {
+        // Add statistic data to the top
+        let divStatisticInfo = document.createElement('div');
+        divStatisticInfo.id = 'divStatisticInfo';
+        deviceInfo.appendChild(divStatisticInfo);
+
+        function showStatisticInformation(attacksTotal, attacksToday, bansTotal, bansToday) {
+          divStatisticInfo.innerHTML = `<h2>${deviceData.name}</h2>
+          <p>attacks today: ${attacksToday} (${attacksTotal} total)</p>
+          <p>bans today: ${bansToday} (${bansTotal} total)</p>`;
+        }
+        showStatisticInformation('...', '...', '...', '...');
+        socket.emit('getDeviceStatistics', {
+          'deviceId': deviceData.deviceId
+        });
+        timerStatisticInfo = setInterval(() => socket.emit('getDeviceStatistics', {
+          'deviceId': deviceData.deviceId
+        }), 30000);
+
         // Add attacks tab
         let divAttacks = document.createElement('div');
         currentDeviceData.btnFetchOlderAttacks = document.createElement('span');
@@ -493,7 +529,10 @@
       deleteButtonDiv.style.justifyContent = "center";
       let deleteButton = document.createElement('button');
       deleteButton.textContent = 'i sure want to delete this device';
-      deleteButton.onclick = () => socket.emit('deviceDelete', deviceData.deviceId);
+      deleteButton.onclick = () => {
+        socket.emit('deviceDelete', deviceData.deviceId);
+        currentDeviceData.deviceId = null;
+      };
 
       deleteButtonDiv.appendChild(deleteButton);
       addTab('delete', deleteButtonDiv);
