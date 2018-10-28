@@ -649,7 +649,6 @@ def get_device_attacks(sid, data):
     if device is None:
         return
     device_sid = device.get_sid()
-    device.config = data.get('config', '{}')
     db.session.commit()
     if device_sid is not None:
         hss.emit(device_sid, 'getStatisticInfo', sid)
