@@ -567,6 +567,20 @@ def get_device_bans(sid, data):
         hss.emit(device_sid, 'getBans', {'userSid': sid, 'before': data.get('bansBefore', 0)})
 
 
+@sio.on('unblock')
+def device_unblock(sid, data):
+    if not check_socket_login(sid):
+        return
+    device_id = data.get('deviceId', '')
+    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+    device = Device.query.filter_by(uid=device_id, user=user).first()
+    if device is None:
+        return
+    device_sid = device.get_sid()
+    if device_sid is not None:
+        hss.emit(device_sid, 'unblock_ip', data['ip'])
+
+
 @sio.on('getUpdateInfo')
 def get_device_update_info(sid, device_id):
     if not check_socket_login(sid):

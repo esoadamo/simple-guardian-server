@@ -66,6 +66,7 @@
   td,
   th {
     border: 1px solid black;
+    height: 1.4em;
   }
 </style>
 {% endblock %} {% block content %}
@@ -88,6 +89,7 @@
 <script>
   const $ = document.querySelector.bind(document);
   let timerStatisticInfo = null;
+  let socket = null;
 
   function isUndefined(v) {
     return typeof(v) === 'unedfined';
@@ -109,8 +111,14 @@
     el.id = id;
   }
 
+  function unban(deviceId, ip, rowID){
+    let row = $('#' + rowID);
+    socket.emit('unblock', {deviceId, ip});
+    row.parentElement.removeChild(row);
+  }
+
   window.onload = () => {
-    const socket = io();
+    socket = io();
 
     const currentDeviceData = {
       lastAttackId: null,
@@ -286,10 +294,11 @@
         return;
       let bans = data.bans;
 
-      let headers = ['time', 'ip', 'attacks count'];
+      let headers = ['time', 'ip', 'attacks count', 'unban'];
 
       function createRow(data) {
         let tr = document.createElement('tr');
+        tr.id = `ban-row-${currentDeviceData.bansRows.length}`;
 
         function addColumn(text, isHTMLCode = false) {
           let td = document.createElement('td');
@@ -312,6 +321,9 @@
               break;
             case 'attacks count':
               addColumn(data.attacksCount);
+              break;
+            case 'unban':
+              addColumn(`<span class="btn" onclick="unban('${currentDeviceData.deviceId}', '${data.ip}', '${tr.id}')">unban</span>`, true);
               break;
             default:
               addColumn('');
