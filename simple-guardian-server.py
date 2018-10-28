@@ -767,6 +767,6 @@ if __name__ == '__main__':
     HSSOperator.init()
     AsyncSio.init()
     app.config['TEMPLATES_AUTO_RELOAD'] = True
-    eventlet.wsgi.server(eventlet.listen(('', 7225)), socketio.Middleware(sio, app), socket_timeout=60)
+    eventlet.wsgi.server(eventlet.listen(('', CONFIG['port'])), socketio.Middleware(sio, app), socket_timeout=60)
     AppRunning.set_running(False)
     hss.close()
