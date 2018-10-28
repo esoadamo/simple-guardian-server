@@ -20,7 +20,8 @@ from http_socket_server import HTTPSocketServer
 
 DIR_DATABASES = os.path.abspath('db')
 CONFIG = {
-    'port': 7221
+    'port': 7221,
+    'forceHTTPS': False
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}
@@ -442,6 +443,8 @@ def autoinstall_new_device(user_mail, device_id):
     if device is None or device.installed:  # if device is logged in already, we cannot login anymore
         abort(404)
     login_key = request.base_url[:-5]  # remove /auto
+    if not login_key.startswith('https') and CONFIG['forceHTTPS']:
+        login_key = login_key.replace('http', 'https', 1)
     response = make_response(render_template('autoinstall.py',
                                              zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
                                              login_key=login_key))
