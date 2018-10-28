@@ -18,6 +18,7 @@ def main():
     zip_url = "{{ zip_url }}"
     zip_file = tempfile.mkstemp()[1]
     target_directory = "/usr/share/simple-guardian"
+    username = "simpleguardian"
 
     print('obtaining latest release from %s' % zip_url)
     urllib.request.urlretrieve(zip_url, zip_file)
@@ -39,12 +40,12 @@ def main():
         shutil.move(file_from, file_to)
     shutil.rmtree(extracted_dir)
 
-    print('creating simple-guardian user')
-    process("useradd simple-guardian")
-    print('adding simple-guarian to adm group')
-    process("usermod -a -G adm simple-guardian")
-    print('giving folder permissions to simple-guardian')
-    process("chown -R simple-guardian %s" % target_directory)
+    print('creating %s user' % username)
+    process("useradd %s" % username)
+    print('adding %s to adm group' % username)
+    process("usermod -a -G adm %s" % username)
+    print('giving folder permissions to %s' % username)
+    process("chown -R %s %s" % (username, target_directory))
     print('giving executing rights on blocker executable and assigning him to the root with setuid')
     process("chown root:root %s/blocker" % target_directory)
     process("chmod +x %s/blocker" % target_directory)
@@ -71,13 +72,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=simple-guardian
+User=%s
 WorkingDirectory=%s
 ExecStart=%s/venv/bin/python simple-guardian.py
 Restart=on-failure
 
 [Install]
-WantedBy=multi-user.target""" % (target_directory, target_directory))
+WantedBy=multi-user.target""" % (username, target_directory, target_directory))
     print('starting service')
     process('sudo service simple-guardian start')
     print('you are protected now!')
