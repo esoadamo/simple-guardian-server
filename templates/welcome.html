@@ -31,6 +31,12 @@
       text-align: center;
     }
 
+    h3 {
+        color: #94fffb;
+        width: 100%;
+        text-align: center;
+    }
+
     h1 {
       font-size: 50px;
       width: 100%;
@@ -45,6 +51,43 @@
       display: flex;
       min-width: 30%;
       justify-content: space-around;
+        position: absolute;
+        top: 50%;
+
+    }
+
+    .box {
+        width: 75%;
+        background: #080606cc;
+        border-radius: 6px;
+        padding: 0 1.5em 0 1.5em;
+        margin-top: 40px;
+    }
+
+    p, ul {
+        color: #fff;
+    }
+
+    p > a {
+        color: #fffebc;
+    }
+
+    ul {
+        list-style-position: inside;
+        list-style: square;
+    }
+
+    strong {
+        color: #fff63d;
+    }
+
+    #infoBoxes {
+        width: 100%;
+        display: flex;
+        position: absolute;
+        flex-direction: column;
+        align-items: center;
+        top: calc(100% - 40px - 3em);
     }
   </style>
 </head>
@@ -57,6 +100,72 @@
   {% else %}
   <div class="menuButtons"><a class="btn" href="/control">control panel</a><a class="btn" href="/hub">hub</a><a class="btn" href="/logout">logout</a></div>
   {% endif %}
+  <div id="infoBoxes">
+      <div class="box">
+          <h3>what is this?</h3>
+          <p>
+              Simple Guardian (GitHub <a href="https://github.com/esoadamo/simple-guardian-server">here</a> and <a
+                  href="https://github.com/esoadamo/simple-guardian">here</a>) is an
+              easy alternative to Fail2Ban. It makes your Linux server secure by scanning logs and finding log lines
+              with known attack patterns.<br>
+              Its <strong>key features</strong> are:
+          </p>
+          <ul>
+              <li><strong>fast to deploy</strong> - your VPS can be protected from most common attacks under 10 seconds
+              </li>
+              <li><strong>easy to configure</strong> - no RegEx-skill needed, no programming needed, just basic text
+                  editing
+              </li>
+              <li><strong>community</strong> - SG has a hub, where you can find & share guarding profiles for many
+                  applications
+              </li>
+          </ul>
+      </div>
+      <div class="box">
+          <h3>how long does it take to protect my server?</h3>
+      </div>
+  </div>
 </body>
+
+<script>
+    scrollingTimer = null;
+
+    function scrollToElement(el) {
+        let rect = el.getBoundingClientRect();
+        let targetY = rect.top + rect.height;
+
+        if (scrollingTimer !== null)
+            clearInterval(scrollingTimer);
+
+        let lastScroll = window.scrollY;
+        scrollingTimer = setInterval(() = > {
+            let yScrollNeeded = targetY - window.scrollY;
+        if (yScrollNeeded) {
+            window.scroll(0, window.scrollY + (yScrollNeeded > 0 ? 3 : -3));
+        }
+
+        if ((window.scrollY === lastScroll) || (Math.abs(yScrollNeeded) < 1)) {
+            clearInterval(scrollingTimer);
+            scrollingTimer = null;
+        }
+        lastScroll = window.scrollY;
+
+    },
+        0.5
+    )
+        ;
+    }
+
+    window.onload = () =
+    >
+    {
+        for (let box of document.querySelectorAll('.box'))
+            box.onclick = () =
+    >
+        scrollToElement(box);
+    }
+    ;
+
+</script>
 
 </html>
