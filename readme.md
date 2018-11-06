@@ -23,4 +23,8 @@ If protected SSH, FTP and mail is not enough for your, then go to the **Hub**, w
 
 ![control panel](https://user-images.githubusercontent.com/15877754/48023222-719a6a80-e13d-11e8-93ca-c6d19ff7d553.png)
 
-![main page](https://user-images.githubusercontent.com/15877754/48023219-6e9f7a00-e13d-11e8-8ba2-0e58cb893d9b.png)
+## Can I really secure my server against brute force attacks under one minute?
+
+Yes! And you can see it for youself:
+
+[![VIDEO: How to secure your VPS againts brute force attacks under one minute](https://i.imgur.com/ioQ4DBx.png)](https://youtu.be/jtzZVXeBUX4 "VIDEO: How to secure your VPS againts brute force attacks under one minute")
