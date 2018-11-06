@@ -35,6 +35,7 @@
         color: #94fffb;
         width: 100%;
         text-align: center;
+        cursor: pointer;
     }
 
     h1 {
@@ -61,7 +62,7 @@
         background: #080606cc;
         border-radius: 6px;
         padding: 0 1.5em 0 1.5em;
-        margin-top: 40px;
+        margin-bottom: 40px;
     }
 
     p, ul {
@@ -87,7 +88,14 @@
         position: absolute;
         flex-direction: column;
         align-items: center;
-        top: calc(100% - 40px - 3em);
+        top: calc(100% - 3em);
+    }
+
+    iframe {
+        margin-bottom: 1em;
+        position: relative;
+        left: 50%;
+        transform: translate(-50%, 0);
     }
   </style>
 </head>
@@ -123,14 +131,14 @@
       </div>
       <div class="box">
           <h3>how long does it take to protect my server?</h3>
+          <iframe width="560" height="315" src="https://www.youtube.com/embed/jtzZVXeBUX4" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
       </div>
   </div>
 </body>
 
 <script>
     scrollingTimer = null;
-
-    function scrollToElement(el) {
+    function scrollToElement(el){
         let rect = el.getBoundingClientRect();
         let targetY = rect.top + rect.height;
 
@@ -138,33 +146,25 @@
             clearInterval(scrollingTimer);
 
         let lastScroll = window.scrollY;
-        scrollingTimer = setInterval(() = > {
+        scrollingTimer = setInterval(() => {
             let yScrollNeeded = targetY - window.scrollY;
-        if (yScrollNeeded) {
-            window.scroll(0, window.scrollY + (yScrollNeeded > 0 ? 3 : -3));
-        }
+            if (yScrollNeeded){
+                window.scroll(0, window.scrollY + (yScrollNeeded > 0 ? 3 : -3));
+            }
 
-        if ((window.scrollY === lastScroll) || (Math.abs(yScrollNeeded) < 1)) {
-            clearInterval(scrollingTimer);
-            scrollingTimer = null;
-        }
-        lastScroll = window.scrollY;
+            if ((window.scrollY === lastScroll)||(Math.abs(yScrollNeeded) < 1)){
+                clearInterval(scrollingTimer);
+                scrollingTimer = null;
+            }
+            lastScroll = window.scrollY;
 
-    },
-        0.5
-    )
-        ;
+        }, 0.5);
     }
 
-    window.onload = () =
-    >
-    {
+    window.onload = () => {
         for (let box of document.querySelectorAll('.box'))
-            box.onclick = () =
-    >
-        scrollToElement(box);
-    }
-    ;
+            box.onclick = () => scrollToElement(box);
+    };
 
 </script>
 
