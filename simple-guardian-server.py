@@ -16,7 +16,7 @@ from datetime import datetime
 # noinspection PyPackageRequirements
 import socketio
 
-from http_socket_server import HTTPSocketServer
+from http_socket_server import HTTPSocketServer, HSocket
 
 DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
 CONFIG = {  # dictionary with config. Is overwritten by config.json
@@ -297,12 +297,21 @@ class Device(db.Model):
 
 
 @app.route("/api/serviceName")
-def get_service_name():
+def get_service_name():  # type: () -> str
+    """
+    Used by client when pairing to verify that he has connected to right device
+    :return: name of this service
+    """
     return "simple-guardian-server"
 
 
 @app.route("/api/getSidSecret")
-def get_new_sid():
+def get_new_sid():  # type: () -> str or "redirect"
+    """
+    Requests a secret for user's SID. User must be logged in in order to access this page
+    so we are sure to who are we giving the secret to SID
+    :return: secret for authentication user's socket
+    """
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
@@ -316,6 +325,11 @@ def get_new_sid():
 
 @app.route('/control')
 def control_panel():
+    """
+    Shows control panel to the user
+    User must be logged in
+    :return: control panel template
+    """
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
@@ -324,6 +338,11 @@ def control_panel():
 
 @app.route('/user')
 def user_data():
+    """
+    Shows panel with user config data and allows them to change them
+    User must be logged in
+    :return: user data template
+    """
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
@@ -333,12 +352,22 @@ def user_data():
 
 @app.route('/hub')
 def hub_search():
+    """
+    Shows profile hub
+    :return: main hub page template
+    """
     return render_template('profile-hub-search.html', username=session.get('mail', 'undefined'),
                            logged_in=not User.does_need_login())
 
 
 @app.route('/hub/<int:profile_number>/send', methods=['GET', 'POST'])
-def hub_send_profile(profile_number):
+def hub_send_profile(profile_number):  # type: (int) -> "template"
+    """
+    GET method: Shows a UI to send profile to user's device
+    POST method: Adds the profile to the config of selected devices
+    :param profile_number: ID of the profile in database
+    :return: GET method returns template UI to select target devices to send config to, POST method saves the config
+    """
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
@@ -365,6 +394,11 @@ def hub_send_profile(profile_number):
 
 @app.route('/hub/<profile_number>', methods=['GET', 'POST'])
 def hub_profile(profile_number: int):
+    """
+    Shows profile's details or creates a new profile or delete existing profile
+    :param profile_number: profile ID to show, -1 is reserved for creating a new profile
+    :return: GET: UI to show or edit profile, POST to save changes
+    """
     try:
         profile_number = int(profile_number)
     except ValueError:
@@ -441,6 +475,11 @@ def hub_profile(profile_number: int):
 
 @app.route('/hub_my')
 def hub_my_profiles():
+    """
+    Shows user's profiles
+    User must be logged it
+    :return: user's profiles template
+    """
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
@@ -453,12 +492,21 @@ def hub_my_profiles():
 
 @app.route('/logout')
 def logout():
+    """
+    Logs user out
+    :return: redirect to homepage
+    """
     session.clear()
     return redirect(url_for('homepage'))
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """
+    GET: shows a form to login
+    POST: verifies the combination of mail and password
+    :return: redirect to control panel if login was successful, login page if login pages were not right
+    """
     if not User.does_need_login():
         return redirect(url_for('control_panel'))
     error_msg = ""
@@ -481,6 +529,11 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    """
+    GET: shows a form to register
+    POST: creates a new user in database
+    :return: redirect to control panel if registration was successful, registration page if login pages were not right
+    """
     if not User.does_need_login():
         return redirect(url_for('control_panel'))
     error_msg = ""
@@ -507,12 +560,23 @@ def register():
 
 @app.route("/")
 def homepage():
+    """
+    Shows homepage
+    :return: homepage template
+    """
     logged_in = not User.does_need_login()
     return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
 
 
 @app.route("/api/<user_mail>/new_device/<device_id>", methods=['GET', 'POST'])
-def login_new_device(user_mail, device_id):
+def login_new_device(user_mail, device_id):  # type: (str, str) -> str
+    """
+    On GET shows user information that this page is accessible only by using the SG client
+    When SG client accesses this page, it gives him login keys and pairs the device with the user's mail
+    :param user_mail: mail of user the calling device will be assigned to
+    :param device_id: UUID of the device that is pairing
+    :return: login data as JSON if device gave us correct information, 404 otherwise
+    """
     if request.method == "GET":
         return "this is meant to be run by your simple-guardian-client, not by your web browser. sorry."
     user = User.query.filter_by(mail=user_mail).first()
@@ -531,6 +595,12 @@ def login_new_device(user_mail, device_id):
 
 @app.route("/api/<user_mail>/new_device/<device_id>/auto")
 def autoinstall_new_device(user_mail, device_id):
+    """
+    Gives device a Python script which will install the SG client on the device and pair it with the server
+    :param user_mail: mail of user the calling device will be assigned to
+    :param device_id: UUID of the device that is pairing
+    :return: a Python script which will install the SG client on the device and pair it with the server
+    """
     user = User.query.filter_by(mail=user_mail).first()
     if user is None:
         abort(404)
@@ -547,18 +617,34 @@ def autoinstall_new_device(user_mail, device_id):
     return response
 
 
-def check_socket_login(sid):
+def check_socket_login(sid):  # type: (str) -> bool
+    """
+    Checks if socket accessing the web interface is verified as logged in user
+    :param sid: web client's socket ID
+    :return: True if SID is assigned to user in database, False otherwise
+    """
     return sid in SID_LOGGED_IN
 
 
 @sio.on('connect')
-def client_connected(sid, __):
+def client_connected(sid, __):  # type: (str, any) -> None
+    """
+    When new web client connects, create him a secret and ask him for verification using this secret
+    :param sid: new client's socket ID
+    :param __: possible data, unused
+    :return: None
+    """
     SID_SECRETS[sid] = {'secret': uuid4().hex, 'mail': None}
     sio.emit('askForSecret', sid, room=sid)
 
 
 @sio.on('disconnect')
-def client_disconnect(sid):
+def client_disconnect(sid):  # type: (str) -> None
+    """
+    When user disconnects, delete him from list of logged in clients and notify his devices
+    :param sid: client's socket ID
+    :return: None
+    """
     if sid in SID_SECRETS:
         del SID_SECRETS[sid]
     else:
@@ -572,7 +658,13 @@ def client_disconnect(sid):
 
 
 @sio.on('login')
-def login_client_socket(sid, secret):
+def login_client_socket(sid, secret):  # type: (str, str) -> None
+    """
+    Verify that client is logging in with right socket secret and if so, assign this socket to his mail
+    :param sid: client's socket ID
+    :param secret: secret fo this socket
+    :return: None
+    """
     if sid not in SID_SECRETS or SID_SECRETS[sid]['secret'] != secret:
         sio.emit('login', False, room=sid)
         return
@@ -589,7 +681,13 @@ def login_client_socket(sid, secret):
 
 
 @sio.on('listProfiles')
-def list_profiles(sid, filter_str):
+def list_profiles(sid, filter_str):  # type: (str, str) -> None
+    """
+    Lists profiles from database based on the filter and emits the list back to the client
+    :param sid: client's socket ID
+    :param filter_str: the filter applied on the name of searched profiles
+    :return: None
+    """
     filter_str = "%" + filter_str + "%"
     sio.emit('profilesList',
              [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
@@ -597,7 +695,13 @@ def list_profiles(sid, filter_str):
 
 
 @sio.on('profileLike')
-def update_likes_on_profile(sid, profile_id):
+def update_likes_on_profile(sid, profile_id):  # type: (str, int) -> None
+    """
+    Likes or dislikes profile (switches the like status)
+    :param sid: client's socket ID
+    :param profile_id: id of profile that user want to switch of
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
@@ -613,7 +717,15 @@ def update_likes_on_profile(sid, profile_id):
 
 
 @sio.on('getDeviceInfo')
-def get_device_info(sid, data):
+def get_device_info(sid, data):  # type: (str, dict) -> None
+    """
+    User selected a device from list.
+    If it is not installed yet, send user info about how to install
+    If installed and online, ask the device about its statistic and lower device's asking interval to 2 seconds
+    :param sid: web user's socket ID
+    :param data: data with target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -638,7 +750,13 @@ def get_device_info(sid, data):
 
 
 @sio.on('getAttacks')
-def get_device_attacks(sid, data):
+def get_device_attacks(sid, data):  # type: (str, dict) -> None
+    """
+    User asked us to send him list of attacks from the device. Proxy that command.
+    :param sid: web user's socket ID
+    :param data: data with target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -652,7 +770,13 @@ def get_device_attacks(sid, data):
 
 
 @sio.on('getBans')
-def get_device_bans(sid, data):
+def get_device_bans(sid, data):  # type: (str, dict) -> None
+    """
+    User asked us to send him list of bans from the device. Proxy that command.
+    :param sid: web user's socket ID
+    :param data: data with target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -666,7 +790,13 @@ def get_device_bans(sid, data):
 
 
 @sio.on('unblock')
-def device_unblock(sid, data):
+def device_unblock(sid, data):  # type: (str, dict) -> None
+    """
+    User asked us to unblock IP blocked on device. Proxy that command.
+    :param sid: web user's socket ID
+    :param data: data with target device ID and Ip IP to unblock
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -680,7 +810,13 @@ def device_unblock(sid, data):
 
 
 @sio.on('getUpdateInfo')
-def get_device_update_info(sid, device_id):
+def get_device_update_info(sid, device_id):  # type: (str, str) -> None
+    """
+    User ask us to ask device about it's update status
+    :param sid: web user's socket ID
+    :param device_id: target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
@@ -693,7 +829,13 @@ def get_device_update_info(sid, device_id):
 
 
 @sio.on('update')
-def device_send_update(sid, device_id):
+def device_send_update(sid, device_id):  # type: (str, str) -> None
+    """
+    Signal the device to update to newest release
+    :param sid: web user's socket ID
+    :param device_id: target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
@@ -706,7 +848,13 @@ def device_send_update(sid, device_id):
 
 
 @sio.on('updateMaster')
-def device_send_beta_update(sid, device_id):
+def device_send_beta_update(sid, device_id):  # type: (str, str) -> None
+    """
+    Signal the device to update to newest version from master branch
+    :param sid: web user's socket ID
+    :param device_id: target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
@@ -719,7 +867,13 @@ def device_send_beta_update(sid, device_id):
 
 
 @sio.on('configUpdate')
-def get_device_attacks(sid, data):
+def config_update(sid, data):  # type: (str, dict) -> None
+    """
+    User asked us to send and save new config to and for the device.
+    :param sid: web user's socket ID
+    :param data: data with target device ID and new config
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -735,7 +889,13 @@ def get_device_attacks(sid, data):
 
 
 @sio.on('getDeviceStatistics')
-def get_device_attacks(sid, data):
+def get_device_attacks(sid, data):  # type: (str, dict) -> None
+    """
+    User asked us to list attacks on the device. Ask the device to list the attacks.
+    :param sid: web user's socket ID
+    :param data: data with target device ID
+    :return: None
+    """
     if not check_socket_login(sid):
         return
     device_id = data.get('deviceId', '')
@@ -754,6 +914,10 @@ class HSSOperator:
 
     @staticmethod
     def init():
+        """
+        Initializes HSocket Server listener
+        :return: None
+        """
         hss.on('login', HSSOperator.login)
         hss.on('disconnect', HSSOperator.disconnect)
         hss.on('attacks', HSSOperator.attacks)
@@ -762,11 +926,22 @@ class HSSOperator:
         hss.on('statistic_data', HSSOperator.statistic_data)
 
     @staticmethod
-    def is_logged_in(soc):
+    def is_logged_in(soc):  # type: (HSocket) -> bool
+        """
+        Tests if this socket is already logged in
+        :param soc: HSocket of the client
+        :return: True if this device's socket is already logged in, False otherwise
+        """
         return soc.sid in HSSOperator.sid_device_id_link
 
     @staticmethod
-    def attacks(soc, data):
+    def attacks(soc, data):  # type: (HSocket, dict) -> None
+        """
+        Sends info about performed attacks on client to he user on the web
+        :param soc: HSocket of the client
+        :param data: dictionary
+        :return: None
+        """
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
@@ -778,7 +953,13 @@ class HSSOperator:
                        'attacks': data.get('attacks')}, room=client_sid)
 
     @staticmethod
-    def bans(soc, data):
+    def bans(soc, data):  # type: (HSocket, dict) -> None
+        """
+        Sends info about banned IPs by client to he user on the web
+        :param soc: HSocket of the client
+        :param data: dictionary
+        :return: None
+        """
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
@@ -790,7 +971,13 @@ class HSSOperator:
                        'bans': data.get('bans')}, room=client_sid)
 
     @staticmethod
-    def statistic_data(soc, data):
+    def statistic_data(soc, data):  # type: (HSocket, dict) -> None
+        """
+        Sends info about number of attacks and bans of client to he user on the web
+        :param soc: HSocket of the client
+        :param data: dictionary
+        :return: None
+        """
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
@@ -802,7 +989,13 @@ class HSSOperator:
                        'statisticData': data.get('data')}, room=client_sid)
 
     @staticmethod
-    def update_info(soc, data):
+    def update_info(soc, data):  # type: (HSocket, dict) -> None
+        """
+        Sends info about updates of client to he user on the web
+        :param soc: HSocket of the client
+        :param data: dictionary
+        :return: None
+        """
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
@@ -814,7 +1007,13 @@ class HSSOperator:
         AsyncSio.emit('updateInfo', data, room=client_sid)
 
     @staticmethod
-    def login(soc, data):
+    def login(soc, data):  # type: (HSocket, dict) -> None
+        """
+        Accepts login data from device, verifies it and sends user a list of online devices
+        :param soc: HSocket of the client
+        :param data: dict. uid key - id of the device, secret - login secret
+        :return: None
+        """
         data = json.loads(data)
         if 'uid' not in data and 'secret' not in data:
             soc.emit('login', False)
@@ -830,7 +1029,12 @@ class HSSOperator:
         [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
-    def disconnect(soc):
+    def disconnect(soc):  # type: (HSocket) -> None
+        """
+        Fired on device disconnection and notifies user about the disconnection
+        :param soc: HSocket of the client
+        :return: None
+        """
         if soc.sid in HSSOperator.sid_device_id_link:
             device = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
             del HSSOperator.sid_device_id_link[soc.sid]
@@ -839,11 +1043,17 @@ class HSSOperator:
 
 
 def save_db():
+    """
+    Save the config to the disc
+    """
     with open(os.path.join(DIR_DATABASES, 'config.json'), 'w') as f:
         json.dump(CONFIG, f, indent=1)
 
 
 def init_db():
+    """
+    Loads config and starts connection to the database
+    """
     if not os.path.isdir(DIR_DATABASES):
         os.makedirs(DIR_DATABASES)
     file_config = os.path.join(DIR_DATABASES, 'config.json')
@@ -860,10 +1070,13 @@ def init_db():
 
 
 if __name__ == '__main__':
+    # Init everything
     init_db()
     HSSOperator.init()
     AsyncSio.init()
     app.config['TEMPLATES_AUTO_RELOAD'] = True
     eventlet.wsgi.server(eventlet.listen(('', CONFIG['port'])), socketio.Middleware(sio, app), socket_timeout=60)
+
+    # When this is reached, it means that user has stopped the execution of program
     AppRunning.set_running(False)
     hss.close()
