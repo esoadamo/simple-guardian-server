@@ -18,39 +18,69 @@ import socketio
 
 from http_socket_server import HTTPSocketServer
 
-DIR_DATABASES = os.path.abspath('db')
-CONFIG = {
-    'port': 7221,
-    'forceHTTPS': False
+DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
+CONFIG = {  # dictionary with config. Is overwritten by config.json
+    'port': 7221,  # port of the web server
+    'forceHTTPS': False  # if set to True, every generated URL if forced to start with https://
 }
 
-SID_SECRETS = {}  # sid: {secret, mail}
-SID_LOGGED_IN = {}  # sid: mail
+SID_SECRETS = {}  # sid: {secret, mail}, stores login data about clients that are trying to log in
+SID_LOGGED_IN = {}  # sid: mail, stores data logged in clients
 
+# initialize all servers
 sio = socketio.Server()
 app = Flask(__name__)
 hss = HTTPSocketServer(app)
+
+# set basic config and initialize database
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'  # temporary placement, is set to disc file further in code
 db = SQLAlchemy(app)
 
 
 class AppRunning:
+    """
+    This class signalizes or sets if this program's threads should run or should be terminated
+    """
     app_running = [True]
 
     @staticmethod
     def is_running() -> bool:
+        """
+        Tests if the program should be running
+        :return: True if the program should be running, False if it should terminate itself
+        """
         return len(AppRunning.app_running) > 0
 
     @staticmethod
     def set_running(val: bool):
+        """
+        Sets if the program should be running
+        :param val: True if the program should be running, False if it should terminate itself
+        :return: None
+        """
         if val:
             AppRunning.app_running.append(True)
         else:
             AppRunning.app_running.clear()
 
     @staticmethod
-    def sleep_while_running(seconds):
+    def exit(exit_code):  # type: (int) -> None
+        """
+        Signalizes all threads to exit and then exists with specified exit code
+        :param exit_code:
+        :return: NOne
+        """
+        AppRunning.set_running(False)
+        exit(exit_code)
+
+    @staticmethod
+    def sleep_while_running(seconds):  # type: (float) -> None
+        """
+        Performs a sleep operation on calling thread. Sleep is interrupted if the program is supposed to terminate
+        :param seconds: how long should the thread sleep
+        :return: None
+        """
         while AppRunning.is_running() and seconds > 0:
             sleep = min(1, seconds)
             time.sleep(sleep)
@@ -58,14 +88,26 @@ class AppRunning:
 
 
 class AsyncSio:
-    to_send = Queue()
+    """
+    Asynchronously sending SIO events from other threads
+    """
+
+    to_send = Queue()  # Queue of dictionaries to send to client. Filled by using .emit()
 
     @staticmethod
-    def init():
+    def init() -> None:
+        """
+        Initializes the server by launching the background task
+        :return: None
+        """
         sio.start_background_task(AsyncSio._background_task)
 
     @staticmethod
     def _background_task():
+        """
+        While the application is running, fetches new messages from the to_send Queue and emits them to clients
+        :return: None
+        """
         while AppRunning.is_running():
             eventlet.sleep(1)
             while not AsyncSio.to_send.empty():
@@ -73,12 +115,13 @@ class AsyncSio:
                 sio.emit(el['event'], el['data'], room=el['room'])
 
     @staticmethod
-    def emit(event, data=None, room=None):
+    def emit(event, data=None, room=None) -> None:
         """
         Allow us to send async sio emits
         :param event: name of event to emit
         :param data: which data to send
         :param room: and to whom to send it
+        :return: None
         """
         AsyncSio.to_send.put({'event': event, 'data': data, 'room': room})
 
@@ -86,6 +129,10 @@ class AsyncSio:
 class LoginException(Exception):
     pass
 
+
+"""
+Initialize the database schema
+"""
 
 # noinspection PyUnresolvedReferences
 association_table_user_profile_likes = db.Table('users-profiles_likes', db.Model.metadata,
@@ -115,7 +162,15 @@ class User(db.Model):
     password = db.Column(db.Text, unique=False, nullable=False)
 
     @staticmethod
-    def login(mail, password):
+    def login(mail, password):  # type: (str, str) -> None
+        """
+        Tries to verify the user's mail and password with the database and if verification is successful,
+        then saves his session
+        :param mail: user's mail
+        :param password:  user's password
+        :raise LoginException: when the combination of mail and password is unknown to the database
+        :return: None if login was successful, if something was wrong then it raises the LoginException
+        """
         user = User.query.filter_by(mail=mail).first()
         if user is None:
             raise LoginException('this user does not exist')
@@ -125,13 +180,22 @@ class User(db.Model):
         session['mail'] = mail
 
     @staticmethod
-    def does_need_login():
+    def does_need_login():  # type: () -> False or "Redirect"
+        """
+        Checks if web user has to log in or is already logged in
+        :return: False if user is logged in or Flask's redirect to the login page if the user is not logged in yet
+        """
         if 'mail' in session and User.query.filter_by(mail=session['mail']).first() is not None:
             return False
         return redirect(url_for('login'))
 
     @staticmethod
-    def list_sids_by_mail(user_mail: str) -> list:
+    def list_sids_by_mail(user_mail):  # type: (str) -> List[str]
+        """
+        Lists all web user's socket IDs that are logged in and belongs to specific mail
+        :param user_mail: mail of the user to checks for SIDs of him
+        :return: list of currently active SIDs assigned to specified user
+        """
         sids = []
         if user_mail in SID_LOGGED_IN.values():
             for sid, mail in SID_LOGGED_IN.items():
@@ -141,6 +205,11 @@ class User(db.Model):
 
     @staticmethod
     def is_online_by_mail(user_mail: str) -> bool:
+        """
+        Checks if user is currently online by looking if his mail is assigned to any active web UI's SID
+        :param user_mail:  mail of the user to checks for SIDs of him
+        :return: True if at least one SID is assigned to this mail, false otherwise
+        """
         return user_mail in SID_LOGGED_IN.values()
 
 
@@ -156,9 +225,17 @@ class Device(db.Model):
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
 
     def is_online(self) -> bool:
+        """
+        Check if connection between the device and the server is active
+        :return: True if connection between the device and the server is active, False otherwise
+        """
         return self.id in HSSOperator.sid_device_id_link.values()
 
-    def get_sid(self) -> list or None:
+    def get_sid(self) -> str or None:
+        """
+        Gets the SID of this device
+        :return: SID if device is connected to this server, None if connection with this server is not estabilished
+        """
         vals = HSSOperator.sid_device_id_link.values()
         if self.id not in vals:
             return None
@@ -166,11 +243,17 @@ class Device(db.Model):
 
     @staticmethod
     @sio.on('listDevices')
-    def list_for_user(sid, async=False):
+    def list_for_user(sid, asynchronous=False):  # type: (str, bool) -> None
+        """
+        Lists devices for the user online on web UI
+        :param sid: SID of the user on the web UI the list of devices will be send to
+        :param asynchronous: True if you are not calling this function from Flask thread
+        :return: None
+        """
         if not check_socket_login(sid):
             return
         # emit dict of device names and uids
-        f_emit = sio.emit if not async else AsyncSio.emit
+        f_emit = sio.emit if not asynchronous else AsyncSio.emit
         f_emit('deviceList',
                {device.uid: {'name': device.name, 'installed': device.installed,
                              'online': False if not device.installed else device.is_online()} for device in
@@ -179,7 +262,13 @@ class Device(db.Model):
 
     @staticmethod
     @sio.on('deviceNew')
-    def create_new(sid, device_name):
+    def create_new(sid, device_name):  # type: (str, str) -> None
+        """
+        Creates new device and lists client all his devices
+        :param sid: SID of the user on the web UI the list of devices will be send to
+        :param device_name: name of the new device
+        :return: None
+        """
         if not check_socket_login(sid):
             return
         while True:
@@ -193,7 +282,13 @@ class Device(db.Model):
 
     @staticmethod
     @sio.on('deviceDelete')
-    def device_delete(sid, device_id):
+    def device_delete(sid, device_id):  # type: (str, int) -> None
+        """
+        Deletes the device and lists client all his left devices
+        :param sid: SID of the user on the web UI the list of devices will be send to
+        :param device_id: id of the device to be deleted
+        :return: None
+        """
         if not check_socket_login(sid):
             return
         Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
@@ -429,7 +524,7 @@ def login_new_device(user_mail, device_id):
     device.secret = uuid4().hex
     device.installed = True
     db.session.commit()
-    [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
+    [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
     return json.dumps({'service': 'simple-guardian',
                        'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
@@ -732,7 +827,7 @@ class HSSOperator:
         soc.emit('login', True)
         soc.emit('config', device.config)
         soc.set_asking_timeout(5 if User.is_online_by_mail(device.user.mail) else 15)
-        [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
+        [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
     def disconnect(soc):
@@ -740,7 +835,7 @@ class HSSOperator:
             device = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
             del HSSOperator.sid_device_id_link[soc.sid]
             if device is not None:
-                [Device.list_for_user(sid, async=True) for sid in User.list_sids_by_mail(device.user.mail)]
+                [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
 
 def save_db():
