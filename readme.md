@@ -28,3 +28,12 @@ If protected SSH, FTP and mail is not enough for your, then go to the **Hub**, w
 Yes! And you can see it for youself:
 
 [![VIDEO: How to secure your VPS againts brute force attacks under one minute](https://i.imgur.com/ioQ4DBx.png)](https://youtu.be/jtzZVXeBUX4 "VIDEO: How to secure your VPS againts brute force attacks under one minute")
+
+## What is the license?
+
+MIT.
+
+The [socket.io](https://socket.io/) was made by Automattic <dev@cloudup.com>
+ and is also under MIT.
+
+The picture on the homepage and web's icon are under Pixabay License from [Pixabay.com](https://pixabay.com/). 
