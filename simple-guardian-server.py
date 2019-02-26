@@ -336,7 +336,7 @@ def control_panel():
     return render_template('main-panel.html', username=session.get('mail', 'undefined'), logged_in=True)
 
 
-@app.route('/user')
+@app.route('/user', methods=['GET', 'POST'])
 def user_data():
     """
     Shows panel with user config data and allows them to change them
@@ -346,8 +346,29 @@ def user_data():
     needs_login = User.does_need_login()
     if needs_login:
         return needs_login
+    message = ""
+    if request.method == "POST":
+        try:
+            user = User.query.filter_by(mail=session['mail']).first()
+            if not bcrypt.checkpw(request.form['passCurrent'].encode('utf8'), user.password):
+                message = "current password does not match"
+                raise InterruptedError
+            user.password = bcrypt.hashpw(request.form['passNew'].encode('utf8'), bcrypt.gensalt())
+            if request.form.get('reallyChangeMail', '') == 'on':
+                new_mail = request.form['mail']
+                if User.query.filter_by(mail=new_mail).first() is not None:
+                    message = "user with this mail already exists"
+                    raise InterruptedError
+                user.mail = new_mail
+                session['mail'] = new_mail
+            db.session.commit()
+            message = 'all changed'
+        except KeyError:
+            message = "missing required fields"
+        except InterruptedError:
+            pass
     return render_template('user.html', username=session.get('mail', 'undefined'),
-                           mail=session.get('mail', 'undefined'), logged_in=True)
+                           mail=session.get('mail', 'undefined'), message=message, logged_in=True)
 
 
 @app.route('/hub')

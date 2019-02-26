@@ -1,12 +1,5 @@
 {% extends "layout-ui.html" %} {% block title %}User config - {% endblock %} {% block styles %}
 <style>
-  .upperMenu {
-    display: flex;
-    justify-content: space-between;
-    background: #cccccc;
-    font-size: 18px;
-  }
-
   .formDiv {
     display: flex;
     justify-content: center;
@@ -19,10 +12,15 @@
     flex-direction: column;
     min-width: 60%;
   }
+
+  .infoMessage {
+    color: #f6546a;
+  }
 </style>
 {% endblock %} {% block content %}
 <div class="formDiv">
   <form method="post">
+    <span class="infoMessage">{{ message }}</span>
     <input name="mail" id="mail" type="email" value="{{ mail }}" placeholder="email" /><label><input name="reallyChangeMail" id="chckMail" type="checkbox">really change my mail</input></label>
     <input name="passNew" id="passNew" type="password" placeholder="new password" />
     <input id="passRetype" type="password" placeholder="retype new password" />
