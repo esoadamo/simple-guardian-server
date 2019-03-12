@@ -3,25 +3,30 @@ import os
 import random
 import shlex
 import time
-from uuid import uuid4
-from queue import Queue
+import logging
 
 import bcrypt
 import eventlet.wsgi
+
+# noinspection PyPackageRequirements
+import socketio
+
+from uuid import uuid4
+from queue import Queue
 from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
 from datetime import datetime
-
-# noinspection PyPackageRequirements
-import socketio
 
 from http_socket_server import HTTPSocketServer, HSocket
 
 DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
 CONFIG = {  # dictionary with config. Is overwritten by config.json
     'port': 7221,  # port of the web server
-    'forceHTTPS': False  # if set to True, every generated URL if forced to start with https://
+    'forceHTTPS': False,  # if set to True, every generated URL if forced to start with https://
+    'logFile': None,  # type: None or str  # string is the path to the file in which the logs will be saved
+    'logger': None  # type: logging.Logger  # the Logger object that is used by this application to log.
+                    # Initialized in logging_init()
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}, stores login data about clients that are trying to log in
@@ -544,6 +549,9 @@ def login():
             User.login(mail, password)
             return redirect(url_for('control_panel'))
         except LoginException as e:
+            mail = request.form.get('mail', None)
+            if mail is not None:
+                CONFIG['logger'].warn("%s tried to log in as user \"%s\", but failed" % (request.remote_addr, mail))
             error_msg = str(e)
     return render_template('login.html', error_msg=error_msg)
 
@@ -1090,9 +1098,32 @@ def init_db():
     db.create_all()
 
 
+def logging_init():
+    """
+    Initializes the logger and saves it into CONFIG['logger']
+    """
+    logger = logging.getLogger()  # type: logging.Logger
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)-1s %(message)s', datefmt='%b %d %H:%M:%S')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+
+    if CONFIG['logFile'] is not None:
+        file_handler = logging.FileHandler(CONFIG['logFile'])
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    # noinspection PyTypeChecker
+    CONFIG['logger'] = logger
+
+
 if __name__ == '__main__':
     # Init everything
     init_db()
+    logging_init()
+    CONFIG['logger'].info('SG server starting')
     HSSOperator.init()
     AsyncSio.init()
     app.config['TEMPLATES_AUTO_RELOAD'] = True
