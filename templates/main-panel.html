@@ -1,556 +1,581 @@
 {% extends "layout-ui.html" %} {% block title %}Main panel - {% endblock %} {% block styles %}
 <style>
-  .mainPanel {
-    display: flex;
-    width: 100%;
-    height: 100%;
-  }
+    .mainPanel {
+        display: flex;
+        width: 100%;
+        height: 100%;
+    }
 
-  #deviceSelection {
-    height: 100%;
-    flex-grow: 1;
-    border-right: 1px solid black;
-    margin-right: 1%;
-  }
+    #deviceSelection {
+        height: 100%;
+        flex-grow: 1;
+        border-right: 1px solid black;
+        margin-right: 1%;
+    }
 
-  #deviceInfo {
-    flex-grow: 8;
-    display: flex;
-    flex-direction: column;
-  }
+    #deviceInfo {
+        flex-grow: 8;
+        display: flex;
+        flex-direction: column;
+    }
 
-  .device {
-    border: 1px solid gray;
-    border-radius: 5px;
-    border-left: none;
-    width: 101%;
-    background: white;
-  }
+    .device {
+        border: 1px solid gray;
+        border-radius: 5px;
+        border-left: none;
+        width: 101%;
+        background: white;
+    }
 
-  .deviceCurrent {
-    width: 104%;
-  }
+    .deviceCurrent {
+        width: 104%;
+    }
 
-  .tabHidden {
-    visibility: hidden;
-    position: fixed;
-    top: 0;
-    right: -100%;
-  }
+    .tabHidden {
+        visibility: hidden;
+        position: fixed;
+        top: 0;
+        right: -100%;
+    }
 
-  #deviceTabs {
-    flex-grow: 1;
-  }
+    #deviceTabs {
+        flex-grow: 1;
+    }
 
-  #deviceTabsNames {
-    margin-left: 30px;
-    margin-right: 30px;
-    margin-bottom: 20px;
-  }
+    #deviceTabsNames {
+        margin-left: 30px;
+        margin-right: 30px;
+        margin-bottom: 20px;
+    }
 
-  .deviceTab {
-    color: orange;
-    background: #e5e5e5;
-    border: 1px solid #c5b4ba;
-    border-top: none;
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-  }
+    .deviceTab {
+        color: orange;
+        background: #e5e5e5;
+        border: 1px solid #c5b4ba;
+        border-top: none;
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 10px;
+    }
 
-  table {
-    width: 100%;
-    text-align: center;
-    margin-top: 20px;
-  }
+    .warning {
+        display: flex;
+        align-content: center;
+        justify-content: start;
+        border: 5px dashed #f85f2d;
+        font-size: 14px;
+        font-style: italic;
+        padding: 5px;
+        margin: 0 10px 10px;
+        background: #ffbc9c;
+        color: #130dff;
+    }
 
-  td,
-  th {
-    border: 1px solid black;
-    height: 1.4em;
-  }
+    .waningSign {
+        font-size: 3em;
+    }
+
+    table {
+        width: 100%;
+        text-align: center;
+        margin-top: 20px;
+    }
+
+    td,
+    th {
+        border: 1px solid black;
+        height: 1.4em;
+    }
 </style>
 {% endblock %} {% block content %}
 <div class="mainPanel">
-  <div id="deviceSelection">
-    <!--
-      <div class="device">
-        <div class="deviceName">My best server</div>
-        <div class="deviceOnlineStatus">online</div>
-      </div>
-    -->
-    loading your devices...
-  </div>
-  <div id="deviceInfo">
-    <p>connecting to the server....</p>
-  </div>
+    <div id="deviceSelection">
+        <!--
+          <div class="device">
+            <div class="deviceName">My best server</div>
+            <div class="deviceOnlineStatus">online</div>
+          </div>
+        -->
+        loading your devices...
+    </div>
+    <div id="deviceInfo">
+        <p>connecting to the server....</p>
+    </div>
 </div>
 {% endblock %} {% block js %}
 <script src="/static/socket.io.js"></script>
 <script>
-  const $ = document.querySelector.bind(document);
-  let timerStatisticInfo = null;
-  let socket = null;
+    const $ = document.querySelector.bind(document);
+    let timerStatisticInfo = null;
+    let socket = null;
 
-  function isUndefined(v) {
-    return typeof(v) === 'unedfined';
-  }
+    function isUndefined(v) {
+        return typeof (v) === 'unedfined';
+    }
 
-  function formatNumber(num, places) {
-    let n = num.toString();
-    while (n.length < places)
-      n = '0' + n;
-    return n;
-  }
+    function formatNumber(num, places) {
+        let n = num.toString();
+        while (n.length < places)
+            n = '0' + n;
+        return n;
+    }
 
-  function createButton(text, appendTo, onclick, id = null) {
-    let el = document.createElement('span');
-    el.textContent = text;
-    el.className = 'btn';
-    appendTo.appendChild(el);
-    el.onclick = onclick;
-    el.id = id;
-  }
+    function createButton(text, appendTo, onclick, id = null) {
+        let el = document.createElement('span');
+        el.textContent = text;
+        el.className = 'btn';
+        appendTo.appendChild(el);
+        el.onclick = onclick;
+        el.id = id;
+    }
 
-  function unban(deviceId, ip, rowID){
-    let row = $('#' + rowID);
-    socket.emit('unblock', {deviceId, ip});
-    row.parentElement.removeChild(row);
-  }
+    function unban(deviceId, ip, rowID) {
+        let row = $('#' + rowID);
+        socket.emit('unblock', {deviceId, ip});
+        row.parentElement.removeChild(row);
+    }
 
-  window.onload = () => {
-    socket = io();
+    window.onload = () => {
+        socket = io();
 
-    const currentDeviceData = {
-      lastAttackId: null,
-      deviceId: null
-    };
-    socket.on('askForSecret', (mySid) => {
-      let xhttp = new XMLHttpRequest();
-      xhttp.onreadystatechange = function() {
-        if (this.readyState === 4 && this.status === 200) {
-          socket.emit('login', xhttp.responseText);
-        }
-      };
-      xhttp.open("GET", `/api/getSidSecret?sid=${encodeURIComponent(mySid)}`, true);
-      xhttp.send();
-    });
-
-    socket.on('login', (success) => {
-      if (!success) {
-        alert('your connection has been rejected');
-        return;
-      }
-      socket.emit('listDevices');
-    });
-    socket.on('deviceList', (devices) => {
-      let deviceSelection = document.querySelector('#deviceSelection');
-      deviceSelection.innerHTML = '';
-      for (let deviceId of Object.keys(devices)) {
-        let deviceData = devices[deviceId];
-        let deviceFrame = document.createElement('div');
-        deviceFrame.classList.add("device");
-        deviceFrame.dataset.deviceId = deviceId;
-        deviceFrame.id = `device-${deviceId}`;
-        let deviceNameFrame = document.createElement('div');
-        deviceNameFrame.classList.add("deviceName");
-        deviceNameFrame.textContent = `${deviceData.installed ? deviceData.online ? '💚' : '💔' : '💿'} ${deviceData.name}`;
-        deviceFrame.appendChild(deviceNameFrame);
-        deviceSelection.appendChild(deviceFrame);
-
-        deviceFrame.onclick = () => socket.emit('getDeviceInfo', {
-          deviceId,
-          'serverAddress': `${window.location.protocol}//${window.location.host}`
+        const currentDeviceData = {
+            lastAttackId: null,
+            deviceId: null
+        };
+        socket.on('askForSecret', (mySid) => {
+            let xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState === 4 && this.status === 200) {
+                    socket.emit('login', xhttp.responseText);
+                }
+            };
+            xhttp.open("GET", `/api/getSidSecret?sid=${encodeURIComponent(mySid)}`, true);
+            xhttp.send();
         });
-      }
-      let deviceFrame = document.createElement('div');
-      deviceFrame.classList.add("device");
-      let btnAddNewDevice = document.createElement('span');
-      btnAddNewDevice.textContent = 'add new device';
-      btnAddNewDevice.onclick = () => {
-        let deviceName = prompt("how the new device shall be named?");
-        if (deviceName === null)
-          return;
-        socket.emit('deviceNew', deviceName);
-      }
 
-      // Test if user already has some devices
-      if (Object.keys(devices).length) {
-        let countOnline = 0;
-        let countInstalled = 0;
-        for (let data of Object.values(devices))
-          if (data.installed) {
-            countInstalled++;
-            if (data.online)
-              countOnline++;
-          }
+        socket.on('login', (success) => {
+            if (!success) {
+                alert('your connection has been rejected');
+                return;
+            }
+            socket.emit('listDevices');
+        });
+        socket.on('deviceList', (devices) => {
+            let deviceSelection = document.querySelector('#deviceSelection');
+            deviceSelection.innerHTML = '';
+            for (let deviceId of Object.keys(devices)) {
+                let deviceData = devices[deviceId];
+                let deviceFrame = document.createElement('div');
+                deviceFrame.classList.add("device");
+                deviceFrame.dataset.deviceId = deviceId;
+                deviceFrame.id = `device-${deviceId}`;
+                let deviceNameFrame = document.createElement('div');
+                deviceNameFrame.classList.add("deviceName");
+                deviceNameFrame.textContent = `${deviceData.installed ? deviceData.online ? '💚' : '💔' : '💿'} ${deviceData.name}`;
+                deviceFrame.appendChild(deviceNameFrame);
+                deviceSelection.appendChild(deviceFrame);
 
-        deviceFrame.appendChild(btnAddNewDevice);
-        if (currentDeviceData.deviceId === null) {
-          deviceInfo.innerHTML = `<p>you have ${Object.keys(devices).length} devices created</p>
+                deviceFrame.onclick = () => socket.emit('getDeviceInfo', {
+                    deviceId,
+                    'serverAddress': `${window.location.protocol}//${window.location.host}`
+                });
+            }
+            let deviceFrame = document.createElement('div');
+            deviceFrame.classList.add("device");
+            let btnAddNewDevice = document.createElement('span');
+            btnAddNewDevice.textContent = 'add new device';
+            btnAddNewDevice.onclick = () => {
+                let deviceName = prompt("how the new device shall be named?");
+                if (deviceName === null)
+                    return;
+                socket.emit('deviceNew', deviceName);
+            }
+
+            // Test if user already has some devices
+            if (Object.keys(devices).length) {
+                let countOnline = 0;
+                let countInstalled = 0;
+                for (let data of Object.values(devices))
+                    if (data.installed) {
+                        countInstalled++;
+                        if (data.online)
+                            countOnline++;
+                    }
+
+                deviceFrame.appendChild(btnAddNewDevice);
+                if (currentDeviceData.deviceId === null) {
+                    deviceInfo.innerHTML = `<p>you have ${Object.keys(devices).length} devices created</p>
         <p>${countInstalled} of them is installed and ${countOnline} online</p>`;
-        }
-      } else {
-        btnAddNewDevice.textContent = 'add first device to guard';
-        btnAddNewDevice.className = 'btn';
-        let deviceInfo = document.querySelector('#deviceInfo');
-        deviceInfo.innerHTML = `<p>it seems that you have no device to guard</p>`;
-        deviceInfo.appendChild(btnAddNewDevice);
-      }
+                }
+            } else {
+                btnAddNewDevice.textContent = 'add first device to guard';
+                btnAddNewDevice.className = 'btn';
+                let deviceInfo = document.querySelector('#deviceInfo');
+                deviceInfo.innerHTML = `<p>it seems that you have no device to guard</p>`;
+                deviceInfo.appendChild(btnAddNewDevice);
+            }
 
-      deviceSelection.appendChild(deviceFrame);
-    });
+            deviceSelection.appendChild(deviceFrame);
+        });
 
-    socket.on('statisticData', (data) => {
-      if (data.deviceId !== currentDeviceData.deviceId)
-        return;
-      let statisticData = data.statisticData;
-      $('#divStatisticInfo').innerHTML = `<h2>${currentDeviceData.name}</h2>
+        socket.on('statisticData', (data) => {
+            if (data.deviceId !== currentDeviceData.deviceId)
+                return;
+            let statisticData = data.statisticData;
+            $('#divStatisticInfo').innerHTML = `<h2>${currentDeviceData.name}</h2>
       <p>attacks today: ${statisticData.attacks.today} (${statisticData.attacks.total} total)</p>
       <p>bans today: ${statisticData.bans.today} (${statisticData.bans.total} total)</p>`;
-    });
+        });
 
-    socket.on('attacks', (data) => {
-      if (data.deviceId !== currentDeviceData.deviceId)
-        return;
-      let attacks = data.attacks;
+        socket.on('attacks', (data) => {
+            if (data.deviceId !== currentDeviceData.deviceId)
+                return;
+            let attacks = data.attacks;
 
-      let headers = ['time', 'ip', 'profile', 'user'];
+            let headers = ['time', 'ip', 'profile', 'user'];
 
-      function createRow(data) {
-        let tr = document.createElement('tr');
+            function createRow(data) {
+                let tr = document.createElement('tr');
 
-        function addColumn(text, isHTMLCode = false) {
-          let td = document.createElement('td');
-          if (isHTMLCode)
-            td.innerHTML = text;
-          else
-            td.textContent = text;
-          tr.appendChild(td);
-        }
+                function addColumn(text, isHTMLCode = false) {
+                    let td = document.createElement('td');
+                    if (isHTMLCode)
+                        td.innerHTML = text;
+                    else
+                        td.textContent = text;
+                    tr.appendChild(td);
+                }
 
-        for (let header of headers)
-          switch (header) {
-            case 'ip':
-              addColumn(data.ip);
-              break;
-            case 'profile':
-              addColumn(data.profile);
-              break;
-            case 'time':
-              let date = new Date(data.time * 1000);
-              let text = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${formatNumber(date.getHours(), 2)}:${formatNumber(date.getMinutes(), 2)}:${formatNumber(date.getSeconds(), 2)}`;
-              addColumn(text);
-              break;
-            case 'user':
-              addColumn(data.user === null ? '-' : data.user);
-              break;
-            default:
-              addColumn('');
-          }
-        return tr;
-      }
+                for (let header of headers)
+                    switch (header) {
+                        case 'ip':
+                            addColumn(data.ip);
+                            break;
+                        case 'profile':
+                            addColumn(data.profile);
+                            break;
+                        case 'time':
+                            let date = new Date(data.time * 1000);
+                            let text = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${formatNumber(date.getHours(), 2)}:${formatNumber(date.getMinutes(), 2)}:${formatNumber(date.getSeconds(), 2)}`;
+                            addColumn(text);
+                            break;
+                        case 'user':
+                            addColumn(data.user === null ? '-' : data.user);
+                            break;
+                        default:
+                            addColumn('');
+                    }
+                return tr;
+            }
 
-      for (let data of attacks) {
-        let row = createRow(data);
-        row.dataset.id = data.id;
-        if (currentDeviceData.lastAttackId === null)
-          currentDeviceData.lastAttackId = data.id;
-        else
-          currentDeviceData.lastAttackId = Math.min(currentDeviceData.lastAttackId, data.id);
-        currentDeviceData.attacksRows.push(row);
-      }
+            for (let data of attacks) {
+                let row = createRow(data);
+                row.dataset.id = data.id;
+                if (currentDeviceData.lastAttackId === null)
+                    currentDeviceData.lastAttackId = data.id;
+                else
+                    currentDeviceData.lastAttackId = Math.min(currentDeviceData.lastAttackId, data.id);
+                currentDeviceData.attacksRows.push(row);
+            }
 
-      currentDeviceData.attacksRows.sort((a, b) => {
-        return parseInt(b.dataset.id) - parseInt(a.dataset.id);
-      });
+            currentDeviceData.attacksRows.sort((a, b) => {
+                return parseInt(b.dataset.id) - parseInt(a.dataset.id);
+            });
 
-      currentDeviceData.tableAttacks.innerHTML = '';
-      let headerRow = document.createElement('tr');
-      for (let header of headers) {
-        let td = document.createElement('th');
-        td.textContent = header;
-        headerRow.appendChild(td);
-      }
-      currentDeviceData.tableAttacks.appendChild(headerRow);
+            currentDeviceData.tableAttacks.innerHTML = '';
+            let headerRow = document.createElement('tr');
+            for (let header of headers) {
+                let td = document.createElement('th');
+                td.textContent = header;
+                headerRow.appendChild(td);
+            }
+            currentDeviceData.tableAttacks.appendChild(headerRow);
 
-      for (let row of currentDeviceData.attacksRows)
-        currentDeviceData.tableAttacks.appendChild(row);
+            for (let row of currentDeviceData.attacksRows)
+                currentDeviceData.tableAttacks.appendChild(row);
 
-      currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
-      currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
-      currentDeviceData.btnFetchOlderAttacks.className = 'btn';
-    });
+            currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
+            currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
+            currentDeviceData.btnFetchOlderAttacks.className = 'btn';
+        });
 
-    socket.on('updateInfo', (data) => {
-      if (data.deviceId !== currentDeviceData.deviceId)
-        return;
-      currentDeviceData.tabUpdates.innerHTML = `<p>Installed version is ${data.versionCurrent}, newest is ${data.versionLatest}<p>`;
-      createButton("update", currentDeviceData.tabUpdates, () => socket.emit('update', currentDeviceData.deviceId));
-      createButton("beta update", currentDeviceData.tabUpdates, () => socket.emit('updateMaster', currentDeviceData.deviceId));
-    });
+        socket.on('updateInfo', (data) => {
+            if (data.deviceId !== currentDeviceData.deviceId)
+                return;
+            currentDeviceData.tabUpdates.innerHTML = `<p>Installed version is ${data.versionCurrent}, newest is ${data.versionLatest}<p>`;
+            createButton("update", currentDeviceData.tabUpdates, () => socket.emit('update', currentDeviceData.deviceId));
+            createButton("beta update", currentDeviceData.tabUpdates, () => socket.emit('updateMaster', currentDeviceData.deviceId));
+        });
 
-    socket.on('bans', (data) => {
-      if (data.deviceId !== currentDeviceData.deviceId)
-        return;
-      let bans = data.bans;
+        socket.on('bans', (data) => {
+            if (data.deviceId !== currentDeviceData.deviceId)
+                return;
+            let bans = data.bans;
 
-      let headers = ['time', 'ip', 'attacks count', 'unban'];
+            let headers = ['time', 'ip', 'attacks count', 'unban'];
 
-      function createRow(data) {
-        let tr = document.createElement('tr');
-        tr.id = `ban-row-${currentDeviceData.bansRows.length}`;
+            function createRow(data) {
+                let tr = document.createElement('tr');
+                tr.id = `ban-row-${currentDeviceData.bansRows.length}`;
 
-        function addColumn(text, isHTMLCode = false) {
-          let td = document.createElement('td');
-          if (isHTMLCode)
-            td.innerHTML = text;
-          else
-            td.textContent = text;
-          tr.appendChild(td);
-        }
+                function addColumn(text, isHTMLCode = false) {
+                    let td = document.createElement('td');
+                    if (isHTMLCode)
+                        td.innerHTML = text;
+                    else
+                        td.textContent = text;
+                    tr.appendChild(td);
+                }
 
-        for (let header of headers)
-          switch (header) {
-            case 'ip':
-              addColumn(data.ip);
-              break;
-            case 'time':
-              let date = new Date(data.time * 1000);
-              let text = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${formatNumber(date.getHours(), 2)}:${formatNumber(date.getMinutes(), 2)}:${formatNumber(date.getSeconds(), 2)}`;
-              addColumn(text);
-              break;
-            case 'attacks count':
-              addColumn(data.attacksCount);
-              break;
-            case 'unban':
-              addColumn(`<span class="btn" onclick="unban('${currentDeviceData.deviceId}', '${data.ip}', '${tr.id}')">unban</span>`, true);
-              break;
-            default:
-              addColumn('');
-          }
-        return tr;
-      }
+                for (let header of headers)
+                    switch (header) {
+                        case 'ip':
+                            addColumn(data.ip);
+                            break;
+                        case 'time':
+                            let date = new Date(data.time * 1000);
+                            let text = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${formatNumber(date.getHours(), 2)}:${formatNumber(date.getMinutes(), 2)}:${formatNumber(date.getSeconds(), 2)}`;
+                            addColumn(text);
+                            break;
+                        case 'attacks count':
+                            addColumn(data.attacksCount);
+                            break;
+                        case 'unban':
+                            addColumn(`<span class="btn" onclick="unban('${currentDeviceData.deviceId}', '${data.ip}', '${tr.id}')">unban</span>`, true);
+                            break;
+                        default:
+                            addColumn('');
+                    }
+                return tr;
+            }
 
-      for (let data of bans) {
-        let row = createRow(data);
-        row.dataset.id = data.id;
-        if (currentDeviceData.lastBanId === null)
-          currentDeviceData.lastBanId = data.id;
-        else
-          currentDeviceData.lastBanId = Math.min(currentDeviceData.lastBanId, data.id);
-        currentDeviceData.bansRows.push(row);
-      }
+            for (let data of bans) {
+                let row = createRow(data);
+                row.dataset.id = data.id;
+                if (currentDeviceData.lastBanId === null)
+                    currentDeviceData.lastBanId = data.id;
+                else
+                    currentDeviceData.lastBanId = Math.min(currentDeviceData.lastBanId, data.id);
+                currentDeviceData.bansRows.push(row);
+            }
 
-      currentDeviceData.bansRows.sort((a, b) => {
-        return parseInt(b.dataset.id) - parseInt(a.dataset.id);
-      });
+            currentDeviceData.bansRows.sort((a, b) => {
+                return parseInt(b.dataset.id) - parseInt(a.dataset.id);
+            });
 
-      currentDeviceData.tableBans.innerHTML = '';
-      let headerRow = document.createElement('tr');
-      for (let header of headers) {
-        let td = document.createElement('th');
-        td.textContent = header;
-        headerRow.appendChild(td);
-      }
-      currentDeviceData.tableBans.appendChild(headerRow);
+            currentDeviceData.tableBans.innerHTML = '';
+            let headerRow = document.createElement('tr');
+            for (let header of headers) {
+                let td = document.createElement('th');
+                td.textContent = header;
+                headerRow.appendChild(td);
+            }
+            currentDeviceData.tableBans.appendChild(headerRow);
 
-      for (let row of currentDeviceData.bansRows)
-        currentDeviceData.tableBans.appendChild(row);
+            for (let row of currentDeviceData.bansRows)
+                currentDeviceData.tableBans.appendChild(row);
 
-      currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
-      currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
-      currentDeviceData.btnFetchOlderBans.className = 'btn';
-    });
+            currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
+            currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
+            currentDeviceData.btnFetchOlderBans.className = 'btn';
+        });
 
-    socket.on('deviceInfo', (deviceData) => {
-      let deviceInfo = document.querySelector('#deviceInfo');
-      deviceInfo.innerHTML = '';
-      let divTabs = document.createElement('div');
-      divTabs.id = 'deviceTabs';
-      let divTabsNames = document.createElement('div');
-      divTabsNames.id = 'deviceTabsNames'
-      let divTabContents = document.createElement('div');
+        socket.on('deviceInfo', (deviceData) => {
+            let deviceInfo = document.querySelector('#deviceInfo');
+            deviceInfo.innerHTML = '';
+            let divTabs = document.createElement('div');
+            divTabs.id = 'deviceTabs';
+            let divTabsNames = document.createElement('div');
+            divTabsNames.id = 'deviceTabsNames'
+            let divTabContents = document.createElement('div');
 
-      Object.assign(currentDeviceData, deviceData);
+            Object.assign(currentDeviceData, deviceData);
 
-      divTabs.appendChild(divTabsNames);
-      divTabs.appendChild(divTabContents);
+            divTabs.appendChild(divTabsNames);
+            divTabs.appendChild(divTabContents);
 
-      if (timerStatisticInfo !== null) {
-        clearInterval(timerStatisticInfo);
-        timerStatisticInfo = null;
-      }
+            if (timerStatisticInfo !== null) {
+                clearInterval(timerStatisticInfo);
+                timerStatisticInfo = null;
+            }
 
-      function addTab(name, contentDiv) {
-        divTabContents.appendChild(contentDiv);
-        let spanName = document.createElement('span');
-        spanName.classList = 'deviceTab';
-        spanName.textContent = name;
-        divTabsNames.appendChild(spanName);
-        contentDiv.classList.add('tabHidden');
-        spanName.onclick = () => {
-          for (let visibleTab of document.querySelectorAll('.tabVisible')) {
-            visibleTab.classList.remove('tabVisible');
-            visibleTab.classList.add('tabHidden');
-          }
-          contentDiv.classList.remove('tabHidden');
-          contentDiv.classList.add('tabVisible');
-        }
-      }
-      if (!deviceData.installed) {
-        deviceInfo.innerHTML =
-          `
+            function addTab(name, contentDiv) {
+                divTabContents.appendChild(contentDiv);
+                let spanName = document.createElement('span');
+                spanName.classList = 'deviceTab';
+                spanName.textContent = name;
+                divTabsNames.appendChild(spanName);
+                contentDiv.classList.add('tabHidden');
+                spanName.onclick = () => {
+                    for (let visibleTab of document.querySelectorAll('.tabVisible')) {
+                        visibleTab.classList.remove('tabVisible');
+                        visibleTab.classList.add('tabHidden');
+                    }
+                    contentDiv.classList.remove('tabHidden');
+                    contentDiv.classList.add('tabVisible');
+                }
+            }
+
+            if (!deviceData.installed) {
+                deviceInfo.innerHTML =
+                    `
         <p>it seems that this device is not installed/logged in yet</p>
-        <p>to automaticly install simple guardian on your device, run</p>
+        <p>to automatically install simple guardian on your device, run</p>
+        <div class="warning"><span class="waningSign">⚠</span><span><p>WARNING: You should always check any script that you download from the internet!
+        I promise you this script is safe, but you should check it manually anyway. Otherwise you may compromise your own system!</p></span></div>
         <code>wget -qO-  ${deviceData.autoinstallUrl}| sudo python3 -</code>
         <p>if you are already installed, you can login by running</p>
         <code>simple-guardian-client login ${deviceData.loginKey}</code>
         `;
-      } else {
-        // Add statistic data to the top
-        let divStatisticInfo = document.createElement('div');
-        divStatisticInfo.id = 'divStatisticInfo';
-        deviceInfo.appendChild(divStatisticInfo);
+            } else {
+                // Add statistic data to the top
+                let divStatisticInfo = document.createElement('div');
+                divStatisticInfo.id = 'divStatisticInfo';
+                deviceInfo.appendChild(divStatisticInfo);
 
-        function showStatisticInformation(attacksTotal, attacksToday, bansTotal, bansToday) {
-          divStatisticInfo.innerHTML = `<h2>${deviceData.name}</h2>
+                function showStatisticInformation(attacksTotal, attacksToday, bansTotal, bansToday) {
+                    divStatisticInfo.innerHTML = `<h2>${deviceData.name}</h2>
           <p>attacks today: ${attacksToday} (${attacksTotal} total)</p>
           <p>bans today: ${bansToday} (${bansTotal} total)</p>`;
-        }
-        showStatisticInformation('...', '...', '...', '...');
-        socket.emit('getDeviceStatistics', {
-          'deviceId': deviceData.deviceId
+                }
+
+                showStatisticInformation('...', '...', '...', '...');
+                socket.emit('getDeviceStatistics', {
+                    'deviceId': deviceData.deviceId
+                });
+                timerStatisticInfo = setInterval(() => socket.emit('getDeviceStatistics', {
+                    'deviceId': deviceData.deviceId
+                }), 30000);
+
+                // Add attacks tab
+                let divAttacks = document.createElement('div');
+                currentDeviceData.btnFetchOlderAttacks = document.createElement('span');
+                currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
+                currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
+                currentDeviceData.lastAttackId = null;
+                currentDeviceData.attacksRows = [];
+
+                function fetchOlderAttacks() {
+                    if (currentDeviceData.btnFetchOlderAttacks.dataset.fetching != 'nope')
+                        return;
+                    currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'yup';
+                    currentDeviceData.btnFetchOlderAttacks.textContent = 'asking device for attacks...';
+                    socket.emit('getAttacks', {
+                        'deviceId': deviceData.deviceId,
+                        'attacksBefore': currentDeviceData.lastAttackId
+                    });
+                }
+
+                fetchOlderAttacks();
+                currentDeviceData.btnFetchOlderAttacks.onclick = fetchOlderAttacks;
+                currentDeviceData.tableAttacks = document.createElement('table');
+                currentDeviceData.tableAttacks.setAttribute('cellspacing', 0);
+                divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
+                divAttacks.appendChild(currentDeviceData.tableAttacks);
+                -
+                    addTab('attacks', divAttacks);
+
+                // Add bans tab
+                let divBans = document.createElement('div');
+                currentDeviceData.btnFetchOlderBans = document.createElement('span');
+                currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
+                currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
+                currentDeviceData.lastBanId = null;
+                currentDeviceData.bansRows = [];
+
+                function fetchOlderBans() {
+                    if (currentDeviceData.btnFetchOlderBans.dataset.fetching != 'nope')
+                        return;
+                    currentDeviceData.btnFetchOlderBans.dataset.fetching = 'yup';
+                    currentDeviceData.btnFetchOlderBans.textContent = 'asking device for bans...';
+                    socket.emit('getBans', {
+                        'deviceId': deviceData.deviceId,
+                        'bansBefore': currentDeviceData.lastBanId
+                    });
+                }
+
+                fetchOlderBans();
+                currentDeviceData.btnFetchOlderBans.onclick = fetchOlderBans;
+                currentDeviceData.tableBans = document.createElement('table');
+                currentDeviceData.tableBans.setAttribute('cellspacing', 0);
+                divBans.appendChild(currentDeviceData.btnFetchOlderBans);
+                divBans.appendChild(currentDeviceData.tableBans);
+                -
+                    addTab('bans', divBans);
+
+
+                // Add updates tab
+                currentDeviceData.tabUpdates = document.createElement('div');
+                currentDeviceData.tabUpdates.textContent = 'awaiting response from device';
+                socket.emit('getUpdateInfo', deviceData.deviceId);
+                addTab('update', currentDeviceData.tabUpdates);
+            }
+            if ('config' in deviceData) {
+                let configFrame = document.createElement('div');
+                let codeConfig = document.createElement('textarea');
+                let btnConfigPush = document.createElement('span');
+                let btnConfigNice = document.createElement('span');
+
+                codeConfig.style.width = '100%';
+                codeConfig.style.height = '30em';
+                codeConfig.style.textAlign = 'left';
+                codeConfig.className = 'code';
+
+                btnConfigPush.className = 'btn';
+                btnConfigNice.className = 'btn';
+
+                function isConfigValid() {
+                    try {
+                        JSON.parse(codeConfig.value);
+                        return true;
+                    } catch (e) {
+                        alert('this config is not valid JSON');
+                        return false;
+                    }
+                }
+
+                codeConfig.value = JSON.stringify(JSON.parse(deviceData.config), null, 2);
+                btnConfigPush.textContent = 'push config';
+                btnConfigNice.textContent = 'make config nice';
+
+                btnConfigNice.onclick = () => {
+                    if (!isConfigValid())
+                        return;
+                    codeConfig.value = JSON.stringify(JSON.parse(codeConfig.value), null, 2);
+                }
+
+                btnConfigPush.onclick = () => {
+                    if (!isConfigValid())
+                        return;
+                    socket.emit('configUpdate', {
+                        'deviceId': deviceData.deviceId,
+                        'config': JSON.stringify(JSON.parse(codeConfig.value))
+                    });
+                }
+
+                configFrame.appendChild(btnConfigNice);
+                configFrame.appendChild(btnConfigPush);
+                configFrame.appendChild(codeConfig);
+
+                addTab('config', configFrame);
+            }
+
+            // Delete device tab
+            let deleteButtonDiv = document.createElement('div');
+            deleteButtonDiv.style.display = "flex";
+            deleteButtonDiv.style.alignItems = "center";
+            deleteButtonDiv.style.justifyContent = "center";
+            let deleteButton = document.createElement('button');
+            deleteButton.textContent = 'i sure want to delete this device';
+            deleteButton.onclick = () => {
+                socket.emit('deviceDelete', deviceData.deviceId);
+                currentDeviceData.deviceId = null;
+            };
+
+            deleteButtonDiv.appendChild(deleteButton);
+            addTab('delete', deleteButtonDiv);
+
+            deviceInfo.appendChild(divTabs);
         });
-        timerStatisticInfo = setInterval(() => socket.emit('getDeviceStatistics', {
-          'deviceId': deviceData.deviceId
-        }), 30000);
-
-        // Add attacks tab
-        let divAttacks = document.createElement('div');
-        currentDeviceData.btnFetchOlderAttacks = document.createElement('span');
-        currentDeviceData.btnFetchOlderAttacks.textContent = 'fetch older attacks';
-        currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'nope';
-        currentDeviceData.lastAttackId = null;
-        currentDeviceData.attacksRows = [];
-
-        function fetchOlderAttacks() {
-          if (currentDeviceData.btnFetchOlderAttacks.dataset.fetching != 'nope')
-            return;
-          currentDeviceData.btnFetchOlderAttacks.dataset.fetching = 'yup';
-          currentDeviceData.btnFetchOlderAttacks.textContent = 'asking device for attacks...';
-          socket.emit('getAttacks', {
-            'deviceId': deviceData.deviceId,
-            'attacksBefore': currentDeviceData.lastAttackId
-          });
-        }
-        fetchOlderAttacks();
-        currentDeviceData.btnFetchOlderAttacks.onclick = fetchOlderAttacks;
-        currentDeviceData.tableAttacks = document.createElement('table');
-        currentDeviceData.tableAttacks.setAttribute('cellspacing', 0);
-        divAttacks.appendChild(currentDeviceData.btnFetchOlderAttacks);
-        divAttacks.appendChild(currentDeviceData.tableAttacks); -
-        addTab('attacks', divAttacks);
-
-        // Add bans tab
-        let divBans = document.createElement('div');
-        currentDeviceData.btnFetchOlderBans = document.createElement('span');
-        currentDeviceData.btnFetchOlderBans.textContent = 'fetch older bans';
-        currentDeviceData.btnFetchOlderBans.dataset.fetching = 'nope';
-        currentDeviceData.lastBanId = null;
-        currentDeviceData.bansRows = [];
-
-        function fetchOlderBans() {
-          if (currentDeviceData.btnFetchOlderBans.dataset.fetching != 'nope')
-            return;
-          currentDeviceData.btnFetchOlderBans.dataset.fetching = 'yup';
-          currentDeviceData.btnFetchOlderBans.textContent = 'asking device for bans...';
-          socket.emit('getBans', {
-            'deviceId': deviceData.deviceId,
-            'bansBefore': currentDeviceData.lastBanId
-          });
-        }
-        fetchOlderBans();
-        currentDeviceData.btnFetchOlderBans.onclick = fetchOlderBans;
-        currentDeviceData.tableBans = document.createElement('table');
-        currentDeviceData.tableBans.setAttribute('cellspacing', 0);
-        divBans.appendChild(currentDeviceData.btnFetchOlderBans);
-        divBans.appendChild(currentDeviceData.tableBans); -
-        addTab('bans', divBans);
-
-
-        // Add updates tab
-        currentDeviceData.tabUpdates = document.createElement('div');
-        currentDeviceData.tabUpdates.textContent = 'awaiting response from device';
-        socket.emit('getUpdateInfo', deviceData.deviceId);
-        addTab('update', currentDeviceData.tabUpdates);
-      }
-      if ('config' in deviceData) {
-        let configFrame = document.createElement('div');
-        let codeConfig = document.createElement('textarea');
-        let btnConfigPush = document.createElement('span');
-        let btnConfigNice = document.createElement('span');
-
-        codeConfig.style.width = '100%';
-        codeConfig.style.height = '30em';
-        codeConfig.style.textAlign = 'left';
-        codeConfig.className = 'code';
-
-        btnConfigPush.className = 'btn';
-        btnConfigNice.className = 'btn';
-
-        function isConfigValid() {
-          try {
-            JSON.parse(codeConfig.value);
-            return true;
-          } catch (e) {
-            alert('this config is not valid JSON');
-            return false;
-          }
-        }
-
-        codeConfig.value = JSON.stringify(JSON.parse(deviceData.config), null, 2);
-        btnConfigPush.textContent = 'push config';
-        btnConfigNice.textContent = 'make config nice';
-
-        btnConfigNice.onclick = () => {
-          if (!isConfigValid())
-            return;
-          codeConfig.value = JSON.stringify(JSON.parse(codeConfig.value), null, 2);
-        }
-
-        btnConfigPush.onclick = () => {
-          if (!isConfigValid())
-            return;
-          socket.emit('configUpdate', {
-            'deviceId': deviceData.deviceId,
-            'config': JSON.stringify(JSON.parse(codeConfig.value))
-          });
-        }
-
-        configFrame.appendChild(btnConfigNice);
-        configFrame.appendChild(btnConfigPush);
-        configFrame.appendChild(codeConfig);
-
-        addTab('config', configFrame);
-      }
-
-      // Delete device tab
-      let deleteButtonDiv = document.createElement('div');
-      deleteButtonDiv.style.display = "flex";
-      deleteButtonDiv.style.alignItems = "center";
-      deleteButtonDiv.style.justifyContent = "center";
-      let deleteButton = document.createElement('button');
-      deleteButton.textContent = 'i sure want to delete this device';
-      deleteButton.onclick = () => {
-        socket.emit('deviceDelete', deviceData.deviceId);
-        currentDeviceData.deviceId = null;
-      };
-
-      deleteButtonDiv.appendChild(deleteButton);
-      addTab('delete', deleteButtonDiv);
-
-      deviceInfo.appendChild(divTabs);
-    });
-  }
+    }
 </script>
 {% endblock %}
