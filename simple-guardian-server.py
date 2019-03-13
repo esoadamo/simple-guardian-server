@@ -4,6 +4,7 @@ import random
 import shlex
 import time
 import logging
+import sys
 
 import bcrypt
 import eventlet.wsgi
@@ -1114,6 +1115,22 @@ def logging_init():
         file_handler = logging.FileHandler(CONFIG['logFile'])
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
+        
+    class StreamLogger:
+        """
+        Puts stream from stdout or stderr to main logger
+        """
+        def __init__(self, level, prefix=''):
+            self.level = level
+            self.prefix = prefix
+            
+        def write(self, msg):
+            while msg.endswith('\n'):
+                msg = msg[:-1]
+            self.level(self.prefix + msg)
+        
+    sys.stdout = StreamLogger(logger.debug, 'STDOUT ')
+    sys.stderr = StreamLogger(logger.debug, 'STDERR ')
 
     # noinspection PyTypeChecker
     CONFIG['logger'] = logger
