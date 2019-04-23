@@ -423,6 +423,21 @@
         <div class="warning"><span class="waningSign">⚠</span><span><p>WARNING: You should always check any script that you download from the internet!
         I promise you this script is safe, but you should check it manually anyway. Otherwise you may compromise your own system!</p></span></div>
         <code>wget -qO-  ${deviceData.autoinstallUrl}| sudo python3 -</code>
+        <p>alternatively, if you are using Debian or Ubuntu, you can use your package manager</p>
+        <code>
+# first make sure that you have root rights<br>
+sudo ls<br>
+# then import the repository key<br>
+wget -O - https://deb.adamhlavacek.com/pub.gpg | sudo apt-key add -<br>
+# then add the repository to your system<br>
+echo "deb https://deb.adamhlavacek.com ./" | sudo tee -a /etc/apt/sources.list<br>
+# update<br>
+sudo apt update<br>
+# install<br>
+sudo apt install simple-guardian<br>
+# login with the server<br>
+simple-guardian-client login ${deviceData.loginKey}
+</code>
         <p>if you are already installed, you can login by running</p>
         <code>simple-guardian-client login ${deviceData.loginKey}</code>
         `;
