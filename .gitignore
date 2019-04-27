@@ -5,3 +5,4 @@ data/profiles/
 data/db.db
 *.log
 db/
+.requirements.md5

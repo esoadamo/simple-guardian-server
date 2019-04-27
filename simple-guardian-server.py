@@ -20,6 +20,9 @@ from sqlalchemy.orm import joinedload
 from datetime import datetime
 
 from http_socket_server import HTTPSocketServer, HSocket
+from the_runner.requirements_updater import RequirementsUpdater
+
+RequirementsUpdater().auto()
 
 DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
 CONFIG = {  # dictionary with config. Is overwritten by config.json
@@ -88,7 +91,7 @@ class AppRunning:
         :return: None
         """
         while AppRunning.is_running() and seconds > 0:
-            sleep = min(1, seconds)
+            sleep = min(1.0, seconds)
             time.sleep(sleep)
             seconds -= sleep
 
