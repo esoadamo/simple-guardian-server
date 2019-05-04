@@ -5,6 +5,7 @@ import shlex
 import time
 import logging
 import sys
+import re
 
 import bcrypt
 import eventlet.wsgi
@@ -14,13 +15,15 @@ import socketio
 
 from uuid import uuid4
 from queue import Queue
-from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort
+from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort, Response
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 
 from http_socket_server import HTTPSocketServer, HSocket
 from the_runner.requirements_updater import RequirementsUpdater
+from easycrypt import AESCipher
 
 RequirementsUpdater().auto()
 
@@ -30,7 +33,7 @@ CONFIG = {  # dictionary with config. Is overwritten by config.json
     'forceHTTPS': False,  # if set to True, every generated URL if forced to start with https://
     'logFile': None,  # type: None or str  # string is the path to the file in which the logs will be saved
     'logger': None  # type: logging.Logger  # the Logger object that is used by this application to log.
-                    # Initialized in logging_init()
+    # Initialized in logging_init()
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}, stores login data about clients that are trying to log in
@@ -39,6 +42,7 @@ SID_LOGGED_IN = {}  # sid: mail, stores data logged in clients
 # initialize all servers
 sio = socketio.Server()
 app = Flask(__name__)
+CORS(app)
 hss = HTTPSocketServer(app)
 
 # set basic config and initialize database
@@ -230,6 +234,8 @@ class Device(db.Model):
     secret = db.Column(db.Text, unique=False, nullable=True)
     config = db.Column(db.Text, unique=False, nullable=False, default="{}")
     installed = db.Column(db.Boolean, nullable=False, default=False)
+    attacks_cache = db.Column(db.Text, unique=False, nullable=False, default="[]")  # last 100 attacks
+    bans_cache = db.Column(db.Text, unique=False, nullable=False, default="[]")  # last 100 bans
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
 
@@ -305,6 +311,23 @@ class Device(db.Model):
         Device.list_for_user(sid)
 
 
+class UserSecret:
+    def __init__(self, secret_key):  # type: (str) -> None
+        self.__cypher = AESCipher(secret_key)
+
+    def make(self, user):  # type: (str) -> str
+        return self.__cypher.encrypt(json.dumps({'user': user}))
+
+    def parse_user(self, secret):  # type: (str) -> str or None
+        try:
+            user_data_string = self.__cypher.decrypt(secret)
+        except ValueError:
+            return None
+        if not len(user_data_string):
+            return None
+        return json.loads(user_data_string)['user']
+
+
 @app.route("/api/serviceName")
 def get_service_name():  # type: () -> str
     """
@@ -314,632 +337,779 @@ def get_service_name():  # type: () -> str
     return "simple-guardian-server"
 
 
-@app.route("/api/getSidSecret")
-def get_new_sid():  # type: () -> str or "redirect"
-    """
-    Requests a secret for user's SID. User must be logged in in order to access this page
-    so we are sure to who are we giving the secret to SID
-    :return: secret for authentication user's socket
-    """
-    needs_login = User.does_need_login()
-    if needs_login:
-        return needs_login
-    if 'sid' not in request.args:
-        return 'who are you?'
-    if request.args['sid'] not in SID_SECRETS:
-        return 'you are not connected'
-    SID_SECRETS[request.args['sid']]['mail'] = session['mail']
-    return SID_SECRETS[request.args['sid']]['secret']
+def init_api():
+    # noinspection PyTypeChecker
+    user_secret = UserSecret(CONFIG["app_secret"])
 
+    def make_respond(message, status='ok'):
+        return Response(json.dumps({'status': status, 'message': message}), mimetype='application/json')
 
-@app.route('/control')
-def control_panel():
-    """
-    Shows control panel to the user
-    User must be logged in
-    :return: control panel template
-    """
-    needs_login = User.does_need_login()
-    if needs_login:
-        return needs_login
-    return render_template('main-panel.html', username=session.get('mail', 'undefined'), logged_in=True)
+    def get_user():  # type: () -> str or Response
+        """
+        Parses the user from sg-auth header
+        :return: If user sent no or invalid header then response for him to login is returned. Otherwise is returned his
+        mail parsed from the header
+        """
+        need_login_response = make_respond('login required', status='needsLogin')
+        if 'sg-auth' not in request.headers:
+            return need_login_response
+        user = user_secret.parse_user(request.headers['sg-auth'])
+        return user if user is not None else need_login_response
 
+    @app.route("/api/whoami")
+    def api_whoami():
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+        return make_respond(user_mail)
 
-@app.route('/user', methods=['GET', 'POST'])
-def user_data():
-    """
-    Shows panel with user config data and allows them to change them
-    User must be logged in
-    :return: user data template
-    """
-    needs_login = User.does_need_login()
-    if needs_login:
-        return needs_login
-    message = ""
-    if request.method == "POST":
+    @app.route("/api/device/list")
+    def api_device_list():
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+        return make_respond([{'name': device.name, 'id': device.uid,
+                              'status': 'online' if device.is_online()
+                              else 'offline' if device.installed else 'not-linked'}
+                             for device in
+                             User.query.filter_by(mail=user_mail).options(
+                                 joinedload('devices')).first().devices])
+
+    @app.route("/api/login", methods=["POST"])
+    def api_login():
+        mail = request.json.get('mail', '')
+        password = request.json.get('password', '').encode('utf8')
         try:
-            user = User.query.filter_by(mail=session['mail']).first()
-            if not bcrypt.checkpw(request.form['passCurrent'].encode('utf8'), user.password):
-                message = "current password does not match"
-                raise InterruptedError
-            user.password = bcrypt.hashpw(request.form['passNew'].encode('utf8'), bcrypt.gensalt())
-            if request.form.get('reallyChangeMail', '') == 'on':
-                new_mail = request.form['mail']
-                if User.query.filter_by(mail=new_mail).first() is not None:
-                    message = "user with this mail already exists"
-                    raise InterruptedError
-                user.mail = new_mail
-                session['mail'] = new_mail
-            db.session.commit()
-            message = 'all changed'
-        except KeyError:
-            message = "missing required fields"
-        except InterruptedError:
-            pass
-    return render_template('user.html', username=session.get('mail', 'undefined'),
-                           mail=session.get('mail', 'undefined'), message=message, logged_in=True)
+            User.login(mail, password)
+            return make_respond({'login': 'ok', 'key': user_secret.make(mail)})
+        except LoginException:
+            return make_respond({'login': 'failed', 'key': None})
 
+    @app.route("/api/register", methods=["POST"])
+    def api_register():
+        mail = request.json.get('mail', '').strip()
+        password = request.json.get('password', '').encode('utf8').strip()
 
-@app.route('/hub')
-def hub_search():
-    """
-    Shows profile hub
-    :return: main hub page template
-    """
-    return render_template('profile-hub-search.html', username=session.get('mail', 'undefined'),
-                           logged_in=not User.does_need_login())
+        if len(mail) == 0 or len(password) == 0:
+            return make_respond({'register': 'error', 'message': 'You must send both mail and password'})
 
+        if not re.match(r"""^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9]
+(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$""",
+                        mail):
+            return make_respond({'register': 'error', 'message': 'This mail is not mail'})
 
-@app.route('/hub/<int:profile_number>/send', methods=['GET', 'POST'])
-def hub_send_profile(profile_number):  # type: (int) -> "template"
-    """
-    GET method: Shows a UI to send profile to user's device
-    POST method: Adds the profile to the config of selected devices
-    :param profile_number: ID of the profile in database
-    :return: GET method returns template UI to select target devices to send config to, POST method saves the config
-    """
-    needs_login = User.does_need_login()
-    if needs_login:
-        return needs_login
-    profile = Profile.query.filter_by(id=profile_number).first()
-    if profile is None:
-        return redirect(url_for('hub_search'))
-    user = User.query.filter_by(mail=session['mail']).first()
+        if User.query.filter_by(mail=mail).first() is not None:
+            return make_respond({'register': 'error', 'message': 'This user already exists'})
 
-    if request.method == "POST":
-        for device in {Device.query.filter_by(id=device_id).first() for device_id in set(request.form.values())}:
-            if device is None:
-                continue
-            config = json.loads(device.config)
-            config.update(json.loads(profile.config))
-            device.config = json.dumps(config)
-            if device.is_online():
-                hss.emit(device.get_sid(), 'config', device.config)
+        db.session.add(User(mail=mail, password=bcrypt.hashpw(password, bcrypt.gensalt())))
         db.session.commit()
-        return redirect(url_for('hub_profile', profile_number=profile_number))
 
-    return render_template('profile-hub-send-to-device.html', username=session.get('mail', 'undefined'),
-                           logged_in=True, devices=user.devices, profile=profile)
+        return make_respond({'register': 'ok', 'message': 'You are registered now', 'key': user_secret.make(mail)})
+
+    @app.route("/api/device/<string:device_uid>/info")
+    def api_device_info(device_uid):  # type: (str) -> any
+        """
+        Fetches info about device
+        :return:
+        """
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({}, status='error')
+
+        return make_respond({
+            'id': device.uid,
+            'name': device.name,
+            'status': 'online' if device.is_online() else 'offline' if device.installed else 'not-linked',
+            'attacks': json.loads(device.attacks_cache),
+            'bans': json.loads(device.bans_cache),
+            'config': json.loads(device.config)
+        })
+
+    @app.route("/api/device/create", methods=["POST"])
+    def api_device_create():
+        """
+        Creates new device for user
+        :return:
+        """
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+
+        device_name = request.json.get('name', '').strip()
+
+        if Device.query.filter_by(name=device_name, user=user).first() is not None:
+            return make_respond({'status': 'error', 'message': 'Device with this name already exists'})
+
+        while True:
+            device_uid = uuid4().hex
+            if Device.query.filter_by(uid=device_uid).first() is None:
+                break
+
+        device = Device(name=device_name, uid=device_uid, user=user)
+        db.session.add(device)
+        db.session.commit()
+        return make_respond({'status': 'ok', 'message': 'Device created', 'id': device_uid})
+
+    @app.route("/api/device/delete", methods=["POST"])
+    def api_device_delete():
+        """
+        Deletes user's device. (specified in the "id" POST key)
+        :return: JSON {success: boolean, message: description}
+        """
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+
+        device_uid = request.json.get('id', '').strip()
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        Device.query.filter_by(uid=device_uid, user=user).delete()
+        db.session.commit()
+        return make_respond({'success': True, 'message': 'Device deleted'})
+
+    @app.route("/api/device/new/<string:user_mail>/<string:device_id>", methods=['GET', 'POST'])
+    def api_device_new(user_mail, device_id):  # type: (str, str) -> str
+        """
+        On GET shows user information that this page is accessible only by using the SG client
+        When SG client accesses this page, it gives him login keys and pairs the device with the user's mail
+        :param user_mail: mail of user the calling device will be assigned to
+        :param device_id: UUID of the device that is pairing
+        :return: login data as JSON if device gave us correct information, 404 otherwise
+        """
+        if request.method == "GET":
+            return "this is meant to be run by your simple-guardian-client, not by your web browser. sorry."
+        user = User.query.filter_by(mail=user_mail).first()
+        if user is None:
+            abort(404)
+        device = Device.query.filter_by(user=user, uid=device_id).first()
+        if device is None or device.installed:  # if device is logged in already, we cannot login anymore
+            abort(404)
+        device.secret = uuid4().hex
+        device.installed = True
+        db.session.commit()
+        [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
+        return json.dumps({'service': 'simple-guardian',
+                           'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
 
-@app.route('/hub/<profile_number>', methods=['GET', 'POST'])
-def hub_profile(profile_number: int):
-    """
-    Shows profile's details or creates a new profile or delete existing profile
-    :param profile_number: profile ID to show, -1 is reserved for creating a new profile
-    :return: GET: UI to show or edit profile, POST to save changes
-    """
-    try:
-        profile_number = int(profile_number)
-    except ValueError:
-        return redirect(url_for('hub_my_profiles'))
-    needs_login = User.does_need_login()
-    if needs_login and profile_number == -1:
-        return needs_login
-    if request.method == "POST":
+def init_old_web_ui():
+    @app.route("/api/getSidSecret")
+    def get_new_sid():  # type: () -> str or "redirect"
+        """
+        Requests a secret for user's SID. User must be logged in in order to access this page
+        so we are sure to who are we giving the secret to SID
+        :return: secret for authentication user's socket
+        """
+        needs_login = User.does_need_login()
+        if needs_login:
+            return needs_login
+        if 'sid' not in request.args:
+            return 'who are you?'
+        if request.args['sid'] not in SID_SECRETS:
+            return 'you are not connected'
+        SID_SECRETS[request.args['sid']]['mail'] = session['mail']
+        return SID_SECRETS[request.args['sid']]['secret']
+
+    @app.route('/control')
+    def control_panel():
+        """
+        Shows control panel to the user
+        User must be logged in
+        :return: control panel template
+        """
+        needs_login = User.does_need_login()
+        if needs_login:
+            return needs_login
+        return render_template('main-panel.html', username=session.get('mail', 'undefined'), logged_in=True)
+
+    @app.route('/user', methods=['GET', 'POST'])
+    def user_data():
+        """
+        Shows panel with user config data and allows them to change them
+        User must be logged in
+        :return: user data template
+        """
+        needs_login = User.does_need_login()
+        if needs_login:
+            return needs_login
+        message = ""
+        if request.method == "POST":
+            try:
+                user = User.query.filter_by(mail=session['mail']).first()
+                if not bcrypt.checkpw(request.form['passCurrent'].encode('utf8'), user.password):
+                    message = "current password does not match"
+                    raise InterruptedError
+                user.password = bcrypt.hashpw(request.form['passNew'].encode('utf8'), bcrypt.gensalt())
+                if request.form.get('reallyChangeMail', '') == 'on':
+                    new_mail = request.form['mail']
+                    if User.query.filter_by(mail=new_mail).first() is not None:
+                        message = "user with this mail already exists"
+                        raise InterruptedError
+                    user.mail = new_mail
+                    session['mail'] = new_mail
+                db.session.commit()
+                message = 'all changed'
+            except KeyError:
+                message = "missing required fields"
+            except InterruptedError:
+                pass
+        return render_template('user.html', username=session.get('mail', 'undefined'),
+                               mail=session.get('mail', 'undefined'), message=message, logged_in=True)
+
+    @app.route('/hub')
+    def hub_search():
+        """
+        Shows profile hub
+        :return: main hub page template
+        """
+        return render_template('profile-hub-search.html', username=session.get('mail', 'undefined'),
+                               logged_in=not User.does_need_login())
+
+    @app.route('/hub/<int:profile_number>/send', methods=['GET', 'POST'])
+    def hub_send_profile(profile_number):  # type: (int) -> "template"
+        """
+        GET method: Shows a UI to send profile to user's device
+        POST method: Adds the profile to the config of selected devices
+        :param profile_number: ID of the profile in database
+        :return: GET method returns template UI to select target devices to send config to, POST method saves the config
+        """
+        needs_login = User.does_need_login()
+        if needs_login:
+            return needs_login
+        profile = Profile.query.filter_by(id=profile_number).first()
+        if profile is None:
+            return redirect(url_for('hub_search'))
         user = User.query.filter_by(mail=session['mail']).first()
 
-        if profile_number == -1:
-            profile = Profile()
-            db.session.add(profile)
-        else:
-            profile = Profile.query.filter_by(id=profile_number).first()
-            if profile is None or profile.author != user:
-                return redirect(url_for('hub_search'))
+        if request.method == "POST":
+            for device in {Device.query.filter_by(id=device_id).first() for device_id in set(request.form.values())}:
+                if device is None:
+                    continue
+                config = json.loads(device.config)
+                config.update(json.loads(profile.config))
+                device.config = json.dumps(config)
+                if device.is_online():
+                    hss.emit(device.get_sid(), 'config', device.config)
+            db.session.commit()
+            return redirect(url_for('hub_profile', profile_number=profile_number))
 
-        if 'delete' in request.form and profile_number != -1:
-            db.session.delete(profile)
+        return render_template('profile-hub-send-to-device.html', username=session.get('mail', 'undefined'),
+                               logged_in=True, devices=user.devices, profile=profile)
+
+    @app.route('/hub/<profile_number>', methods=['GET', 'POST'])
+    def hub_profile(profile_number: int):
+        """
+        Shows profile's details or creates a new profile or delete existing profile
+        :param profile_number: profile ID to show, -1 is reserved for creating a new profile
+        :return: GET: UI to show or edit profile, POST to save changes
+        """
+        try:
+            profile_number = int(profile_number)
+        except ValueError:
+            return redirect(url_for('hub_my_profiles'))
+        needs_login = User.does_need_login()
+        if needs_login and profile_number == -1:
+            return needs_login
+        if request.method == "POST":
+            user = User.query.filter_by(mail=session['mail']).first()
+
+            if profile_number == -1:
+                profile = Profile()
+                db.session.add(profile)
+            else:
+                profile = Profile.query.filter_by(id=profile_number).first()
+                if profile is None or profile.author != user:
+                    return redirect(url_for('hub_search'))
+
+            if 'delete' in request.form and profile_number != -1:
+                db.session.delete(profile)
+                db.session.commit()
+                return redirect(url_for('hub_my_profiles'))
+
+            try:
+                profile_data = json.loads(request.form.get('profileData', None))
+            except json.JSONDecodeError:
+                profile_data = None
+            if profile_data is None:
+                return redirect(url_for('hub_new'))
+            # now check if profile data has all required fields
+            if not isinstance(profile_data, dict):
+                return redirect(url_for('hub_new'))
+            if len(profile_data.keys()) != 1:
+                return redirect(url_for('hub_new'))
+            profile_name = list(profile_data.keys())[0]
+            if not isinstance(profile_data[profile_name], dict):
+                return redirect(url_for('hub_new'))
+            for field in ['logFile', 'filters']:
+                if field not in profile_data[profile_name] or len(profile_data[profile_name][field]) == 0:
+                    return redirect(url_for('hub_new'))
+            if 'description' in profile_data[profile_name]:
+                description = profile_data[profile_name]['description']
+                del profile_data[profile_name]['description']
+            else:
+                description = ''
+
+            profile.author = user
+            profile.description = description
+            profile.name = profile_name
+            profile.official = user.admin
+            profile.config = json.dumps(profile_data)
+            profile.updated = datetime.utcnow()
             db.session.commit()
             return redirect(url_for('hub_my_profiles'))
-
-        try:
-            profile_data = json.loads(request.form.get('profileData', None))
-        except json.JSONDecodeError:
-            profile_data = None
-        if profile_data is None:
-            return redirect(url_for('hub_new'))
-        # now check if profile data has all required fields
-        if not isinstance(profile_data, dict):
-            return redirect(url_for('hub_new'))
-        if len(profile_data.keys()) != 1:
-            return redirect(url_for('hub_new'))
-        profile_name = list(profile_data.keys())[0]
-        if not isinstance(profile_data[profile_name], dict):
-            return redirect(url_for('hub_new'))
-        for field in ['logFile', 'filters']:
-            if field not in profile_data[profile_name] or len(profile_data[profile_name][field]) == 0:
-                return redirect(url_for('hub_new'))
-        if 'description' in profile_data[profile_name]:
-            description = profile_data[profile_name]['description']
-            del profile_data[profile_name]['description']
+        profile = None if profile_number == -1 else Profile.query.filter_by(id=profile_number).first()
+        if profile is None:
+            profile_data = {'unnamed': {'description': '', 'filters': [], 'logFile': ''}}
+            editable = True
+            profile_exists = False
         else:
-            description = ''
+            profile_data = json.loads(profile.config)
+            profile_data[list(profile_data.keys())[0]]['description'] = profile.description
+            profile_exists = True
+            if needs_login:
+                editable = False
+            else:
+                editable = profile.author == User.query.filter_by(mail=session['mail']).first()
+        return render_template('profile-hub-profile.html', username=session.get('mail', 'undefined'),
+                               logged_in=not needs_login,
+                               profile_data=profile_data,
+                               editable=editable,
+                               profile_exists=profile_exists)
 
-        profile.author = user
-        profile.description = description
-        profile.name = profile_name
-        profile.official = user.admin
-        profile.config = json.dumps(profile_data)
-        profile.updated = datetime.utcnow()
-        db.session.commit()
-        return redirect(url_for('hub_my_profiles'))
-    profile = None if profile_number == -1 else Profile.query.filter_by(id=profile_number).first()
-    if profile is None:
-        profile_data = {'unnamed': {'description': '', 'filters': [], 'logFile': ''}}
-        editable = True
-        profile_exists = False
-    else:
-        profile_data = json.loads(profile.config)
-        profile_data[list(profile_data.keys())[0]]['description'] = profile.description
-        profile_exists = True
+    @app.route('/hub_my')
+    def hub_my_profiles():
+        """
+        Shows user's profiles
+        User must be logged it
+        :return: user's profiles template
+        """
+        needs_login = User.does_need_login()
         if needs_login:
-            editable = False
+            return needs_login
+        user = User.query.filter_by(mail=session['mail']).first()
+        profiles = user.profiles
+        [profile.__setattr__('likes_num', len(profile.likes)) for profile in profiles]
+        return render_template('profile-hub-my.html', username=session.get('mail', 'undefined'),
+                               logged_in=True, profiles=profiles)
+
+    @app.route('/logout')
+    def logout():
+        """
+        Logs user out
+        :return: redirect to homepage
+        """
+        session.clear()
+        return redirect(url_for('homepage'))
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        """
+        GET: shows a form to login
+        POST: verifies the combination of mail and password
+        :return: redirect to control panel if login was successful, login page if login pages were not right
+        """
+        if not User.does_need_login():
+            return redirect(url_for('control_panel'))
+        error_msg = ""
+        if request.method == "POST":
+
+            try:
+                try:
+                    mail = request.form['mail']
+                    password = request.form['password'].encode('utf8')
+                    if len(mail) == 0 or len(password) == 0:
+                        raise KeyError()
+                except KeyError:
+                    raise LoginException('send mail and password at least')
+                User.login(mail, password)
+                return redirect(url_for('control_panel'))
+            except LoginException as e:
+                mail = request.form.get('mail', None)
+                if mail is not None:
+                    CONFIG['logger'].warn("%s tried to log in as user \"%s\", but failed" % (request.remote_addr, mail))
+                error_msg = str(e)
+        return render_template('login.html', error_msg=error_msg)
+
+    @app.route("/register", methods=["GET", "POST"])
+    def register():
+        """
+        GET: shows a form to register
+        POST: creates a new user in database
+        :return: redirect to control panel if registration was successful, registration page if login pages were not
+        right
+        """
+        if not User.does_need_login():
+            return redirect(url_for('control_panel'))
+        error_msg = ""
+        if request.method == "POST":
+            try:
+                try:
+                    mail = request.form['mail']
+                    password = request.form['password'].encode('utf8')
+                    if len(mail) == 0 or len(password) == 0:
+                        raise KeyError()
+                except KeyError:
+                    raise LoginException('send mail and password at least')
+
+                if User.query.filter_by(mail=mail).first() is not None:
+                    raise LoginException('this user already exists')
+                db.session.add(User(mail=mail, password=bcrypt.hashpw(password, bcrypt.gensalt())))
+                db.session.commit()
+                User.login(mail, password)
+                return redirect(url_for('control_panel'))
+            except LoginException as e:
+                error_msg = str(e)
+        return render_template('register.html', error_msg=error_msg)
+
+    @app.route("/")
+    def homepage():
+        """
+        Shows homepage
+        :return: homepage template
+        """
+        logged_in = not User.does_need_login()
+        return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
+
+    @app.route("/api/<user_mail>/new_device/<device_id>", methods=['GET', 'POST'])
+    def login_new_device(user_mail, device_id):  # type: (str, str) -> str
+        """
+        On GET shows user information that this page is accessible only by using the SG client
+        When SG client accesses this page, it gives him login keys and pairs the device with the user's mail
+        :param user_mail: mail of user the calling device will be assigned to
+        :param device_id: UUID of the device that is pairing
+        :return: login data as JSON if device gave us correct information, 404 otherwise
+        """
+        if request.method == "GET":
+            return "this is meant to be run by your simple-guardian-client, not by your web browser. sorry."
+        user = User.query.filter_by(mail=user_mail).first()
+        if user is None:
+            abort(404)
+        device = Device.query.filter_by(user=user, uid=device_id).first()
+        if device is None or device.installed:  # if device is logged in already, we cannot login anymore
+            abort(404)
+        device.secret = uuid4().hex
+        device.installed = True
+        db.session.commit()
+        [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
+        return json.dumps({'service': 'simple-guardian',
+                           'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
+
+    @app.route("/api/<user_mail>/new_device/<device_id>/auto")
+    def autoinstall_new_device(user_mail, device_id):
+        """
+        Gives device a Python script which will install the SG client on the device and pair it with the server
+        :param user_mail: mail of user the calling device will be assigned to
+        :param device_id: UUID of the device that is pairing
+        :return: a Python script which will install the SG client on the device and pair it with the server
+        """
+        user = User.query.filter_by(mail=user_mail).first()
+        if user is None:
+            abort(404)
+        device = Device.query.filter_by(user=user, uid=device_id).first()
+        if device is None or device.installed:  # if device is logged in already, we cannot login anymore
+            abort(404)
+        login_key = request.base_url[:-5]  # remove /auto
+        if not login_key.startswith('https') and CONFIG['forceHTTPS']:
+            login_key = login_key.replace('http', 'https', 1)
+        response = make_response(render_template('autoinstall.py',
+                                                 zip_url="https://github.com/esoadamo/simple-guardian/"
+                                                         "archive/master.zip",
+                                                 login_key=login_key))
+        response.headers['Content-Type'] = 'text/plain'
+        return response
+
+    def check_socket_login(sid):  # type: (str) -> bool
+        """
+        Checks if socket accessing the web interface is verified as logged in user
+        :param sid: web client's socket ID
+        :return: True if SID is assigned to user in database, False otherwise
+        """
+        return sid in SID_LOGGED_IN
+
+    @sio.on('connect')
+    def client_connected(sid, __):  # type: (str, any) -> None
+        """
+        When new web client connects, create him a secret and ask him for verification using this secret
+        :param sid: new client's socket ID
+        :param __: possible data, unused
+        :return: None
+        """
+        SID_SECRETS[sid] = {'secret': uuid4().hex, 'mail': None}
+        sio.emit('askForSecret', sid, room=sid)
+
+    @sio.on('disconnect')
+    def client_disconnect(sid):  # type: (str) -> None
+        """
+        When user disconnects, delete him from list of logged in clients and notify his devices
+        :param sid: client's socket ID
+        :return: None
+        """
+        if sid in SID_SECRETS:
+            del SID_SECRETS[sid]
         else:
-            editable = profile.author == User.query.filter_by(mail=session['mail']).first()
-    return render_template('profile-hub-profile.html', username=session.get('mail', 'undefined'),
-                           logged_in=not needs_login,
-                           profile_data=profile_data,
-                           editable=editable,
-                           profile_exists=profile_exists)
+            user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+            for device in user.devices:
+                device_sid = device.get_sid()
+                if device_sid is None:
+                    continue
+                hss.set_asking_timeout(device_sid, 15)
+            del SID_LOGGED_IN[sid]
 
-
-@app.route('/hub_my')
-def hub_my_profiles():
-    """
-    Shows user's profiles
-    User must be logged it
-    :return: user's profiles template
-    """
-    needs_login = User.does_need_login()
-    if needs_login:
-        return needs_login
-    user = User.query.filter_by(mail=session['mail']).first()
-    profiles = user.profiles
-    [profile.__setattr__('likes_num', len(profile.likes)) for profile in profiles]
-    return render_template('profile-hub-my.html', username=session.get('mail', 'undefined'),
-                           logged_in=True, profiles=profiles)
-
-
-@app.route('/logout')
-def logout():
-    """
-    Logs user out
-    :return: redirect to homepage
-    """
-    session.clear()
-    return redirect(url_for('homepage'))
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    """
-    GET: shows a form to login
-    POST: verifies the combination of mail and password
-    :return: redirect to control panel if login was successful, login page if login pages were not right
-    """
-    if not User.does_need_login():
-        return redirect(url_for('control_panel'))
-    error_msg = ""
-    if request.method == "POST":
-
-        try:
-            try:
-                mail = request.form['mail']
-                password = request.form['password'].encode('utf8')
-                if len(mail) == 0 or len(password) == 0:
-                    raise KeyError()
-            except KeyError:
-                raise LoginException('send mail and password at least')
-            User.login(mail, password)
-            return redirect(url_for('control_panel'))
-        except LoginException as e:
-            mail = request.form.get('mail', None)
-            if mail is not None:
-                CONFIG['logger'].warn("%s tried to log in as user \"%s\", but failed" % (request.remote_addr, mail))
-            error_msg = str(e)
-    return render_template('login.html', error_msg=error_msg)
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    """
-    GET: shows a form to register
-    POST: creates a new user in database
-    :return: redirect to control panel if registration was successful, registration page if login pages were not right
-    """
-    if not User.does_need_login():
-        return redirect(url_for('control_panel'))
-    error_msg = ""
-    if request.method == "POST":
-        try:
-            try:
-                mail = request.form['mail']
-                password = request.form['password'].encode('utf8')
-                if len(mail) == 0 or len(password) == 0:
-                    raise KeyError()
-            except KeyError:
-                raise LoginException('send mail and password at least')
-
-            if User.query.filter_by(mail=mail).first() is not None:
-                raise LoginException('this user already exists')
-            db.session.add(User(mail=mail, password=bcrypt.hashpw(password, bcrypt.gensalt())))
-            db.session.commit()
-            User.login(mail, password)
-            return redirect(url_for('control_panel'))
-        except LoginException as e:
-            error_msg = str(e)
-    return render_template('register.html', error_msg=error_msg)
-
-
-@app.route("/")
-def homepage():
-    """
-    Shows homepage
-    :return: homepage template
-    """
-    logged_in = not User.does_need_login()
-    return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
-
-
-@app.route("/api/<user_mail>/new_device/<device_id>", methods=['GET', 'POST'])
-def login_new_device(user_mail, device_id):  # type: (str, str) -> str
-    """
-    On GET shows user information that this page is accessible only by using the SG client
-    When SG client accesses this page, it gives him login keys and pairs the device with the user's mail
-    :param user_mail: mail of user the calling device will be assigned to
-    :param device_id: UUID of the device that is pairing
-    :return: login data as JSON if device gave us correct information, 404 otherwise
-    """
-    if request.method == "GET":
-        return "this is meant to be run by your simple-guardian-client, not by your web browser. sorry."
-    user = User.query.filter_by(mail=user_mail).first()
-    if user is None:
-        abort(404)
-    device = Device.query.filter_by(user=user, uid=device_id).first()
-    if device is None or device.installed:  # if device is logged in already, we cannot login anymore
-        abort(404)
-    device.secret = uuid4().hex
-    device.installed = True
-    db.session.commit()
-    [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
-    return json.dumps({'service': 'simple-guardian',
-                       'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
-
-
-@app.route("/api/<user_mail>/new_device/<device_id>/auto")
-def autoinstall_new_device(user_mail, device_id):
-    """
-    Gives device a Python script which will install the SG client on the device and pair it with the server
-    :param user_mail: mail of user the calling device will be assigned to
-    :param device_id: UUID of the device that is pairing
-    :return: a Python script which will install the SG client on the device and pair it with the server
-    """
-    user = User.query.filter_by(mail=user_mail).first()
-    if user is None:
-        abort(404)
-    device = Device.query.filter_by(user=user, uid=device_id).first()
-    if device is None or device.installed:  # if device is logged in already, we cannot login anymore
-        abort(404)
-    login_key = request.base_url[:-5]  # remove /auto
-    if not login_key.startswith('https') and CONFIG['forceHTTPS']:
-        login_key = login_key.replace('http', 'https', 1)
-    response = make_response(render_template('autoinstall.py',
-                                             zip_url="https://github.com/esoadamo/simple-guardian/archive/master.zip",
-                                             login_key=login_key))
-    response.headers['Content-Type'] = 'text/plain'
-    return response
-
-
-def check_socket_login(sid):  # type: (str) -> bool
-    """
-    Checks if socket accessing the web interface is verified as logged in user
-    :param sid: web client's socket ID
-    :return: True if SID is assigned to user in database, False otherwise
-    """
-    return sid in SID_LOGGED_IN
-
-
-@sio.on('connect')
-def client_connected(sid, __):  # type: (str, any) -> None
-    """
-    When new web client connects, create him a secret and ask him for verification using this secret
-    :param sid: new client's socket ID
-    :param __: possible data, unused
-    :return: None
-    """
-    SID_SECRETS[sid] = {'secret': uuid4().hex, 'mail': None}
-    sio.emit('askForSecret', sid, room=sid)
-
-
-@sio.on('disconnect')
-def client_disconnect(sid):  # type: (str) -> None
-    """
-    When user disconnects, delete him from list of logged in clients and notify his devices
-    :param sid: client's socket ID
-    :return: None
-    """
-    if sid in SID_SECRETS:
+    @sio.on('login')
+    def login_client_socket(sid, secret):  # type: (str, str) -> None
+        """
+        Verify that client is logging in with right socket secret and if so, assign this socket to his mail
+        :param sid: client's socket ID
+        :param secret: secret fo this socket
+        :return: None
+        """
+        if sid not in SID_SECRETS or SID_SECRETS[sid]['secret'] != secret:
+            sio.emit('login', False, room=sid)
+            return
+        SID_LOGGED_IN[sid] = SID_SECRETS[sid]['mail']
         del SID_SECRETS[sid]
-    else:
+        sio.emit('login', True, room=sid)
+
         user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
         for device in user.devices:
             device_sid = device.get_sid()
             if device_sid is None:
                 continue
-            hss.set_asking_timeout(device_sid, 15)
-        del SID_LOGGED_IN[sid]
+            hss.set_asking_timeout(device_sid, 5)
 
+    @sio.on('listProfiles')
+    def list_profiles(sid, filter_str):  # type: (str, str) -> None
+        """
+        Lists profiles from database based on the filter and emits the list back to the client
+        :param sid: client's socket ID
+        :param filter_str: the filter applied on the name of searched profiles
+        :return: None
+        """
+        filter_str = "%" + filter_str + "%"
+        sio.emit('profilesList',
+                 [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
+                  for profile in Profile.query.filter(Profile.name.like(filter_str)).all()], room=sid)
 
-@sio.on('login')
-def login_client_socket(sid, secret):  # type: (str, str) -> None
-    """
-    Verify that client is logging in with right socket secret and if so, assign this socket to his mail
-    :param sid: client's socket ID
-    :param secret: secret fo this socket
-    :return: None
-    """
-    if sid not in SID_SECRETS or SID_SECRETS[sid]['secret'] != secret:
-        sio.emit('login', False, room=sid)
-        return
-    SID_LOGGED_IN[sid] = SID_SECRETS[sid]['mail']
-    del SID_SECRETS[sid]
-    sio.emit('login', True, room=sid)
+    @sio.on('profileLike')
+    def update_likes_on_profile(sid, profile_id):  # type: (str, int) -> None
+        """
+        Likes or dislikes profile (switches the like status)
+        :param sid: client's socket ID
+        :param profile_id: id of profile that user want to switch of
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        profile = Profile.query.filter_by(id=profile_id).first()
+        if profile is None:
+            return
+        if user in profile.likes:
+            profile.likes.remove(user)
+        else:
+            profile.likes.append(user)
+        db.session.commit()
+        sio.emit('profileLikeUpdate', len(profile.likes), room=sid)
 
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    for device in user.devices:
+    @sio.on('getDeviceInfo')
+    def get_device_info(sid, data):  # type: (str, dict) -> None
+        """
+        User selected a device from list.
+        If it is not installed yet, send user info about how to install
+        If installed and online, ask the device about its statistic and lower device's asking interval to 2 seconds
+        :param sid: web user's socket ID
+        :param data: data with target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        server_address = data.get('serverAddress', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_info = {'config': device.config, 'deviceId': device_id, 'installed': device.installed,
+                       'name': device.name}
+        if not device.installed:
+            login_url = '%s/api/%s/new_device/%s' % (server_address, user.mail, device_id)
+            device_info.update(
+                {'loginKey': '"%s"' % shlex.quote(login_url),
+                 'autoinstallUrl': '"%s"' % shlex.quote(login_url + '/auto')})
+        sio.emit('deviceInfo', device_info, room=sid)
+
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        for other_device in user.devices:
+            device_sid = other_device.get_sid()
+            if device_sid is None:
+                continue
+            hss.set_asking_timeout(device_sid, 5 if other_device is not device else 2)
+
+    @sio.on('getAttacks')
+    def get_device_attacks(sid, data):  # type: (str, dict) -> None
+        """
+        User asked us to send him list of attacks from the device. Proxy that command.
+        :param sid: web user's socket ID
+        :param data: data with target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
         device_sid = device.get_sid()
-        if device_sid is None:
-            continue
-        hss.set_asking_timeout(device_sid, 5)
+        if device_sid is not None:
+            hss.emit(device_sid, 'getAttacks', {'userSid': sid, 'before': data.get('attacksBefore', 0)})
 
+    @sio.on('getBans')
+    def get_device_bans(sid, data):  # type: (str, dict) -> None
+        """
+        User asked us to send him list of bans from the device. Proxy that command.
+        :param sid: web user's socket ID
+        :param data: data with target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        if device_sid is not None:
+            hss.emit(device_sid, 'getBans', {'userSid': sid, 'before': data.get('bansBefore', 0)})
 
-@sio.on('listProfiles')
-def list_profiles(sid, filter_str):  # type: (str, str) -> None
-    """
-    Lists profiles from database based on the filter and emits the list back to the client
-    :param sid: client's socket ID
-    :param filter_str: the filter applied on the name of searched profiles
-    :return: None
-    """
-    filter_str = "%" + filter_str + "%"
-    sio.emit('profilesList',
-             [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
-              for profile in Profile.query.filter(Profile.name.like(filter_str)).all()], room=sid)
+    @sio.on('unblock')
+    def device_unblock(sid, data):  # type: (str, dict) -> None
+        """
+        User asked us to unblock IP blocked on device. Proxy that command.
+        :param sid: web user's socket ID
+        :param data: data with target device ID and Ip IP to unblock
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        if device_sid is not None:
+            hss.emit(device_sid, 'unblock_ip', data['ip'])
 
+    @sio.on('getUpdateInfo')
+    def get_device_update_info(sid, device_id):  # type: (str, str) -> None
+        """
+        User ask us to ask device about it's update status
+        :param sid: web user's socket ID
+        :param device_id: target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        if device_sid is not None:
+            hss.emit(device_sid, 'get_update_information', sid)
 
-@sio.on('profileLike')
-def update_likes_on_profile(sid, profile_id):  # type: (str, int) -> None
-    """
-    Likes or dislikes profile (switches the like status)
-    :param sid: client's socket ID
-    :param profile_id: id of profile that user want to switch of
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    profile = Profile.query.filter_by(id=profile_id).first()
-    if profile is None:
-        return
-    if user in profile.likes:
-        profile.likes.remove(user)
-    else:
-        profile.likes.append(user)
-    db.session.commit()
-    sio.emit('profileLikeUpdate', len(profile.likes), room=sid)
+    @sio.on('update')
+    def device_send_update(sid, device_id):  # type: (str, str) -> None
+        """
+        Signal the device to update to newest release
+        :param sid: web user's socket ID
+        :param device_id: target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        if device_sid is not None:
+            hss.emit(device_sid, 'update')
 
+    @sio.on('updateMaster')
+    def device_send_beta_update(sid, device_id):  # type: (str, str) -> None
+        """
+        Signal the device to update to newest version from master branch
+        :param sid: web user's socket ID
+        :param device_id: target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        if device_sid is not None:
+            hss.emit(device_sid, 'update_master')
 
-@sio.on('getDeviceInfo')
-def get_device_info(sid, data):  # type: (str, dict) -> None
-    """
-    User selected a device from list.
-    If it is not installed yet, send user info about how to install
-    If installed and online, ask the device about its statistic and lower device's asking interval to 2 seconds
-    :param sid: web user's socket ID
-    :param data: data with target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    server_address = data.get('serverAddress', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_info = {'config': device.config, 'deviceId': device_id, 'installed': device.installed, 'name': device.name}
-    if not device.installed:
-        login_url = '%s/api/%s/new_device/%s' % (server_address, user.mail, device_id)
-        device_info.update(
-            {'loginKey': '"%s"' % shlex.quote(login_url), 'autoinstallUrl': '"%s"' % shlex.quote(login_url + '/auto')})
-    sio.emit('deviceInfo', device_info, room=sid)
+    @sio.on('configUpdate')
+    def config_update(sid, data):  # type: (str, dict) -> None
+        """
+        User asked us to send and save new config to and for the device.
+        :param sid: web user's socket ID
+        :param data: data with target device ID and new config
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        device.config = data.get('config', '{}')
+        db.session.commit()
+        if device_sid is not None:
+            hss.emit(device_sid, 'config', device.config)
 
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    for other_device in user.devices:
-        device_sid = other_device.get_sid()
-        if device_sid is None:
-            continue
-        hss.set_asking_timeout(device_sid, 5 if other_device is not device else 2)
-
-
-@sio.on('getAttacks')
-def get_device_attacks(sid, data):  # type: (str, dict) -> None
-    """
-    User asked us to send him list of attacks from the device. Proxy that command.
-    :param sid: web user's socket ID
-    :param data: data with target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'getAttacks', {'userSid': sid, 'before': data.get('attacksBefore', 0)})
-
-
-@sio.on('getBans')
-def get_device_bans(sid, data):  # type: (str, dict) -> None
-    """
-    User asked us to send him list of bans from the device. Proxy that command.
-    :param sid: web user's socket ID
-    :param data: data with target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'getBans', {'userSid': sid, 'before': data.get('bansBefore', 0)})
-
-
-@sio.on('unblock')
-def device_unblock(sid, data):  # type: (str, dict) -> None
-    """
-    User asked us to unblock IP blocked on device. Proxy that command.
-    :param sid: web user's socket ID
-    :param data: data with target device ID and Ip IP to unblock
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'unblock_ip', data['ip'])
-
-
-@sio.on('getUpdateInfo')
-def get_device_update_info(sid, device_id):  # type: (str, str) -> None
-    """
-    User ask us to ask device about it's update status
-    :param sid: web user's socket ID
-    :param device_id: target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'get_update_information', sid)
-
-
-@sio.on('update')
-def device_send_update(sid, device_id):  # type: (str, str) -> None
-    """
-    Signal the device to update to newest release
-    :param sid: web user's socket ID
-    :param device_id: target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'update')
-
-
-@sio.on('updateMaster')
-def device_send_beta_update(sid, device_id):  # type: (str, str) -> None
-    """
-    Signal the device to update to newest version from master branch
-    :param sid: web user's socket ID
-    :param device_id: target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    if device_sid is not None:
-        hss.emit(device_sid, 'update_master')
-
-
-@sio.on('configUpdate')
-def config_update(sid, data):  # type: (str, dict) -> None
-    """
-    User asked us to send and save new config to and for the device.
-    :param sid: web user's socket ID
-    :param data: data with target device ID and new config
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    device.config = data.get('config', '{}')
-    db.session.commit()
-    if device_sid is not None:
-        hss.emit(device_sid, 'config', device.config)
-
-
-@sio.on('getDeviceStatistics')
-def get_device_attacks(sid, data):  # type: (str, dict) -> None
-    """
-    User asked us to list attacks on the device. Ask the device to list the attacks.
-    :param sid: web user's socket ID
-    :param data: data with target device ID
-    :return: None
-    """
-    if not check_socket_login(sid):
-        return
-    device_id = data.get('deviceId', '')
-    user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
-    device = Device.query.filter_by(uid=device_id, user=user).first()
-    if device is None:
-        return
-    device_sid = device.get_sid()
-    db.session.commit()
-    if device_sid is not None:
-        hss.emit(device_sid, 'getStatisticInfo', sid)
+    @sio.on('getDeviceStatistics')
+    def get_device_attacks(sid, data):  # type: (str, dict) -> None
+        """
+        User asked us to list attacks on the device. Ask the device to list the attacks.
+        :param sid: web user's socket ID
+        :param data: data with target device ID
+        :return: None
+        """
+        if not check_socket_login(sid):
+            return
+        device_id = data.get('deviceId', '')
+        user = User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()
+        device = Device.query.filter_by(uid=device_id, user=user).first()
+        if device is None:
+            return
+        device_sid = device.get_sid()
+        db.session.commit()
+        if device_sid is not None:
+            hss.emit(device_sid, 'getStatisticInfo', sid)
 
 
 class HSSOperator:
@@ -1118,20 +1288,21 @@ def logging_init():
         file_handler = logging.FileHandler(CONFIG['logFile'])
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-        
+
     class StreamLogger:
         """
         Puts stream from stdout or stderr to main logger
         """
+
         def __init__(self, level, prefix=''):
             self.level = level
             self.prefix = prefix
-            
+
         def write(self, msg):
             while msg.endswith('\n'):
                 msg = msg[:-1]
             self.level(self.prefix + msg)
-        
+
     sys.stdout = StreamLogger(logger.debug, 'STDOUT ')
     sys.stderr = StreamLogger(logger.debug, 'STDERR ')
 
@@ -1147,6 +1318,8 @@ if __name__ == '__main__':
     HSSOperator.init()
     AsyncSio.init()
     app.config['TEMPLATES_AUTO_RELOAD'] = True
+    init_old_web_ui()
+    init_api()
     eventlet.wsgi.server(eventlet.listen(('', CONFIG['port'])), socketio.Middleware(sio, app), socket_timeout=60)
 
     # When this is reached, it means that user has stopped the execution of program
