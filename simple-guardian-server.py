@@ -20,6 +20,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
 from datetime import datetime
+from threading import Thread
 
 from http_socket_server import HTTPSocketServer, HSocket
 from the_runner.requirements_updater import RequirementsUpdater
@@ -232,10 +233,9 @@ class Device(db.Model):
     uid = db.Column(db.Text, unique=True, nullable=False)
     name = db.Column(db.Text, unique=False, nullable=False)
     secret = db.Column(db.Text, unique=False, nullable=True)
+    version = db.Column(db.Text, unique=False, nullable=True, default="0.0")
     config = db.Column(db.Text, unique=False, nullable=False, default="{}")
     installed = db.Column(db.Boolean, nullable=False, default=False)
-    attacks_cache = db.Column(db.Text, unique=False, nullable=False, default="[]")  # last 100 attacks
-    bans_cache = db.Column(db.Text, unique=False, nullable=False, default="[]")  # last 100 bans
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
 
@@ -309,6 +309,25 @@ class Device(db.Model):
         Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
         db.session.commit()
         Device.list_for_user(sid)
+
+
+class Attack(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    time = db.Column(db.Integer, unique=True, nullable=True)
+    profile = db.Column(db.Text, unique=False, nullable=True)
+    user = db.Column(db.Text, unique=False, nullable=True)
+    ip = db.Column(db.Text, unique=False, nullable=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    device = db.relationship('Device', backref=db.backref('attacks', lazy=True))
+
+
+class Ban(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    time = db.Column(db.Integer, unique=False, nullable=True)
+    ip = db.Column(db.Text, unique=False, nullable=True)
+    attacks_count = db.Column(db.Integer, unique=False, nullable=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    device = db.relationship('Device', backref=db.backref('bans', lazy=True))
 
 
 class UserSecret:
@@ -427,8 +446,24 @@ def init_api():
             'id': device.uid,
             'name': device.name,
             'status': 'online' if device.is_online() else 'offline' if device.installed else 'not-linked',
-            'attacks': json.loads(device.attacks_cache),
-            'bans': json.loads(device.bans_cache),
+            'version': device.version,
+            'attacks': [
+                {
+                    'id': attack.id,
+                    'ip': attack.ip,
+                    'time': attack.time,
+                    'user': attack.user,
+                    'profile': attack.profile
+                } for attack in device.attacks
+            ],
+            'bans': [
+                {
+                    'id': ban.id,
+                    'ip': ban.ip,
+                    'time': ban.time,
+                    'attacksCount': ban.attacks_count
+                } for ban in device.bans
+            ],
             'config': json.loads(device.config)
         })
 
@@ -1148,11 +1183,29 @@ class HSSOperator:
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
+
+        sender = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
+
+        commit_db = False
+        for attack in data.get('attacks', []):
+            db_attack = Attack.query.filter_by(device=sender, time=attack.get('time'), ip=attack.get('ip')).first()
+            if db_attack is not None:
+                continue
+            db_attack = Attack(device=sender, time=attack.get('time'),
+                               ip=attack.get('ip'),
+                               profile=attack.get('profile'),
+                               user=attack.get('user'))
+            db.session.add(db_attack)
+            commit_db = True
+
+        if commit_db:
+            db.session.commit()
+
         client_sid = data.get('userSid', '')
         if client_sid not in SID_LOGGED_IN:
             return
         AsyncSio.emit('attacks',
-                      {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
+                      {'deviceId': sender.uid,
                        'attacks': data.get('attacks')}, room=client_sid)
 
     @staticmethod
@@ -1166,11 +1219,26 @@ class HSSOperator:
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
+
+        sender = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
+
+        commit_db = False
+        for ban in data.get('bans', []):
+            db_ban = Ban.query.filter_by(device=sender, time=ban.get('time'), ip=ban.get('ip')).first()
+            if db_ban is not None:
+                continue
+            db_ban = Ban(device=sender, time=ban.get('time'), ip=ban.get('ip'), attacks_count=ban.get('attacksCount'))
+            db.session.add(db_ban)
+            commit_db = True
+
+        if commit_db:
+            db.session.commit()
+
         client_sid = data.get('userSid', '')
         if client_sid not in SID_LOGGED_IN:
             return
         AsyncSio.emit('bans',
-                      {'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid,
+                      {'deviceId': sender.uid,
                        'bans': data.get('bans')}, room=client_sid)
 
     @staticmethod
@@ -1202,10 +1270,17 @@ class HSSOperator:
         if not HSSOperator.is_logged_in(soc):
             return
         data = json.loads(data)
+        device = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
+
+        version = data.get('versionCurrent', '')
+        if device.version != version:
+            device.version = version
+            db.session.commit()
+
         client_sid = data.get('userSid', '')
         if client_sid not in SID_LOGGED_IN:
             return
-        data.update({'deviceId': Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first().uid})
+        data.update({'deviceId': device.uid})
         del data['userSid']
         AsyncSio.emit('updateInfo', data, room=client_sid)
 
@@ -1243,6 +1318,19 @@ class HSSOperator:
             del HSSOperator.sid_device_id_link[soc.sid]
             if device is not None:
                 [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
+
+
+class ThreadAskOnlineDevicesForNewAttacks(Thread):
+    def run(self):  # type: () -> None
+        """
+        Periodically asks device about its status to cache it into dabase
+        :return:
+        """
+        while AppRunning.is_running():
+            for online_device_sid in HSSOperator.sid_device_id_link.keys():
+                hss.emit(online_device_sid, 'getAttacks', {'userSid': None, 'before': None})
+                hss.emit(online_device_sid, 'getBans', {'userSid': None, 'before': None})
+            AppRunning.sleep_while_running(5)
 
 
 def save_db():
@@ -1320,6 +1408,7 @@ if __name__ == '__main__':
     app.config['TEMPLATES_AUTO_RELOAD'] = True
     init_old_web_ui()
     init_api()
+    ThreadAskOnlineDevicesForNewAttacks().start()
     eventlet.wsgi.server(eventlet.listen(('', CONFIG['port'])), socketio.Middleware(sio, app), socket_timeout=60)
 
     # When this is reached, it means that user has stopped the execution of program
