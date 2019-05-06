@@ -404,6 +404,17 @@ def init_api():
         except LoginException:
             return make_respond({'login': 'failed', 'key': None})
 
+    @app.route("/api/password/check", methods=["POST"])
+    def api_password_check():
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+        password = request.json.get('password', '').encode('utf8')
+
+        return make_respond(bcrypt.checkpw(password, user.password))
+
     @app.route("/api/register", methods=["POST"])
     def api_register():
         mail = request.json.get('mail', '').strip()
