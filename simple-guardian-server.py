@@ -494,6 +494,31 @@ def init_api():
         db.session.commit()
         return make_respond({'status': 'ok', 'message': 'Device created', 'id': device_uid})
 
+    @app.route("/api/device/update", methods=["POST"])
+    def api_device_update():
+        """
+        Sends request to the user's device to update it
+        :return: JSON {success: boolean, message: description}
+        """
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+
+        device_uid = request.json.get('id', '').strip()
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        device_sid = device.get_sid()
+        if device_sid is None:
+            return make_respond({'success': False, 'message': 'Device is offline'})
+
+        hss.emit(device_sid, 'update')
+        return make_respond({'success': True, 'message': 'Request sent'})
+
     @app.route("/api/device/delete", methods=["POST"])
     def api_device_delete():
         """
