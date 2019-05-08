@@ -1,32 +1,33 @@
-import json
-import os
-import random
-import shlex
-import time
-import logging
-import sys
-import re
+try:
+    import json
+    import os
+    import random
+    import shlex
+    import time
+    import logging
+    import sys
+    import re
 
-import bcrypt
-import eventlet.wsgi
+    import bcrypt
+    import eventlet.wsgi
 
-# noinspection PyPackageRequirements
-import socketio
+    # noinspection PyPackageRequirements
+    import socketio
 
-from uuid import uuid4
-from queue import Queue
-from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort, Response
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from sqlalchemy.orm import joinedload
-from datetime import datetime
-from threading import Thread
+    from uuid import uuid4
+    from queue import Queue
+    from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort, Response
+    from flask_sqlalchemy import SQLAlchemy
+    from flask_cors import CORS
+    from sqlalchemy.orm import joinedload
+    from datetime import datetime
+    from threading import Thread
 
-from http_socket_server import HTTPSocketServer, HSocket
-from the_runner.requirements_updater import RequirementsUpdater
-from easycrypt import AESCipher
-
-RequirementsUpdater().auto()
+    from http_socket_server import HTTPSocketServer, HSocket
+    from easycrypt import AESCipher
+finally:
+    from the_runner.requirements_updater import RequirementsUpdater
+    RequirementsUpdater().auto()
 
 DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
 CONFIG = {  # dictionary with config. Is overwritten by config.json
