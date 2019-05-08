@@ -1367,7 +1367,7 @@ class ThreadAskOnlineDevicesForNewAttacks(Thread):
             for online_device_sid in HSSOperator.sid_device_id_link.keys():
                 hss.emit(online_device_sid, 'getAttacks', {'userSid': None, 'before': None})
                 hss.emit(online_device_sid, 'getBans', {'userSid': None, 'before': None})
-            AppRunning.sleep_while_running(5)
+            AppRunning.sleep_while_running(5 * 60)
 
 
 def save_db():
