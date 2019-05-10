@@ -266,7 +266,7 @@ class Device(db.Model):
         :param asynchronous: True if you are not calling this function from Flask thread
         :return: None
         """
-        if not check_socket_login(sid):
+        if not sid in SID_LOGGED_IN:
             return
         # emit dict of device names and uids
         f_emit = sio.emit if not asynchronous else AsyncSio.emit
@@ -285,7 +285,7 @@ class Device(db.Model):
         :param device_name: name of the new device
         :return: None
         """
-        if not check_socket_login(sid):
+        if not sid in SID_LOGGED_IN:
             return
         while True:
             device_uid = uuid4().hex
@@ -305,7 +305,7 @@ class Device(db.Model):
         :param device_id: id of the device to be deleted
         :return: None
         """
-        if not check_socket_login(sid):
+        if not sid in SID_LOGGED_IN:
             return
         Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
         db.session.commit()
