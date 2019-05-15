@@ -168,6 +168,9 @@ class Profile(db.Model):
     official = db.Column(db.Boolean, nullable=False, default=False)
     updated = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
+    def delete(self):
+        self.__class__.query.filter_by(id=self.id).delete()
+
 
 # noinspection PyUnresolvedReferences
 class User(db.Model):
@@ -175,6 +178,14 @@ class User(db.Model):
     mail = db.Column(db.Text, unique=True, nullable=False)
     admin = db.Column(db.Boolean, nullable=False, default=False)
     password = db.Column(db.Text, unique=False, nullable=False)
+
+    def delete(self):  # type: () -> None
+        """
+        Deletes this device and all his/her data from the database
+        :return: None
+        """
+        [[item.delete() for item in items] for items in [self.devices, self.profiles]]
+        self.__class__.query.filter_by(id=self.id).delete()
 
     @staticmethod
     def login(mail, password):  # type: (str, str) -> None
@@ -257,6 +268,14 @@ class Device(db.Model):
             return None
         return list(HSSOperator.sid_device_id_link.keys())[list(vals).index(self.id)]
 
+    def delete(self):  # type: () -> None
+        """
+        Deletes this device and all cached attacks and bans linked with this device
+        :return: None
+        """
+        [[item.delete() for item in items] for items in [self.attacks, self.bans]]
+        self.__class__.query.filter_by(id=self.id).delete()
+
     @staticmethod
     @sio.on('listDevices')
     def list_for_user(sid, asynchronous=False):  # type: (str, bool) -> None
@@ -321,6 +340,9 @@ class Attack(db.Model):
     device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
     device = db.relationship('Device', backref=db.backref('attacks', lazy=True))
 
+    def delete(self):
+        self.__class__.query.filter_by(id=self.id).delete()
+
 
 class Ban(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -329,6 +351,9 @@ class Ban(db.Model):
     attacks_count = db.Column(db.Integer, unique=False, nullable=True)
     device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
     device = db.relationship('Device', backref=db.backref('bans', lazy=True))
+
+    def delete(self):
+        self.__class__.query.filter_by(id=self.id).delete()
 
 
 class UserSecret:
@@ -364,7 +389,7 @@ def init_api():
     def make_respond(message, status='ok'):
         return Response(json.dumps({'status': status, 'message': message}), mimetype='application/json')
 
-    def get_user():  # type: () -> str or Response
+    def get_user():  # type: () -> User or Response
         """
         Parses the user from sg-auth header
         :return: If user sent no or invalid header then response for him to login is returned. Otherwise is returned his
@@ -373,30 +398,31 @@ def init_api():
         need_login_response = make_respond('login required', status='needsLogin')
         if 'sg-auth' not in request.headers:
             return need_login_response
-        user = user_secret.parse_user(request.headers['sg-auth'])
+        user_mail = user_secret.parse_user(request.headers['sg-auth'])
+        user = User.query.filter_by(mail=user_mail).first()
         return user if user is not None else need_login_response
 
-    @app.route("/api/whoami")
-    def api_whoami():
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
-        return make_respond(user_mail)
+    @app.route("/api/user/whoami")
+    def api_user_whoami():
+        user = get_user()
+        if type(user) == Response:
+            return user
+        return make_respond(user.mail)
 
     @app.route("/api/device/list")
     def api_device_list():
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
+        user = get_user()
+        if type(user) == Response:
+            return user
         return make_respond([{'name': device.name, 'id': device.uid,
                               'status': 'online' if device.is_online()
                               else 'offline' if device.installed else 'not-linked'}
                              for device in
-                             User.query.filter_by(mail=user_mail).options(
+                             User.query.filter_by(mail=user.mail).options(
                                  joinedload('devices')).first().devices])
 
-    @app.route("/api/login", methods=["POST"])
-    def api_login():
+    @app.route("/api/user/login", methods=["POST"])
+    def api_user_login():
         mail = request.json.get('mail', '')
         password = request.json.get('password', '').encode('utf8')
         try:
@@ -405,24 +431,33 @@ def init_api():
         except LoginException:
             return make_respond({'login': 'failed', 'key': None})
 
-    @app.route("/api/password/check", methods=["POST"])
-    def api_password_check():
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
+    @app.route("/api/user/delete")
+    def api_user_delete():
+        user = get_user()
+        if type(user) == Response:
+            return user
 
-        user = User.query.filter_by(mail=user_mail).first()
+        user.delete()
+        db.session.commit()
+
+        return make_respond(True)
+
+    @app.route("/api/user/password/check", methods=["POST"])
+    def api_user_password_check():
+        user = get_user()
+        if type(user) == Response:
+            return user
+
         password = request.json.get('password', '').encode('utf8')
 
         return make_respond(bcrypt.checkpw(password, user.password))
 
-    @app.route("/api/password/change", methods=["POST"])
-    def api_password_change():
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
+    @app.route("/api/user/password/change", methods=["POST"])
+    def api_user_password_change():
+        user = get_user()
+        if type(user) == Response:
+            return user
 
-        user = User.query.filter_by(mail=user_mail).first()
         password = request.json.get('password', '').encode('utf8').strip()
 
         if len(password) == 0:
@@ -432,17 +467,15 @@ def init_api():
         db.session.commit()
         return make_respond('ok')
 
-    @app.route("/api/register", methods=["POST"])
-    def api_register():
+    @app.route("/api/user/register", methods=["POST"])
+    def api_user_register():
         mail = request.json.get('mail', '').strip()
         password = request.json.get('password', '').encode('utf8').strip()
 
         if len(mail) == 0 or len(password) == 0:
             return make_respond({'register': 'error', 'message': 'You must send both mail and password'})
 
-        if not re.match(r"""^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9]
-(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$""",
-                        mail):
+        if not re.match(r"(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$)", mail):
             return make_respond({'register': 'error', 'message': 'This mail is not mail'})
 
         if User.query.filter_by(mail=mail).first() is not None:
@@ -459,11 +492,9 @@ def init_api():
         Fetches info about device
         :return:
         """
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
-
-        user = User.query.filter_by(mail=user_mail).first()
+        user = get_user()
+        if type(user) == Response:
+            return user
 
         device = Device.query.filter_by(uid=device_uid, user=user).first()
 
@@ -501,11 +532,9 @@ def init_api():
         Creates new device for user
         :return:
         """
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
-
-        user = User.query.filter_by(mail=user_mail).first()
+        user = get_user()
+        if type(user) == Response:
+            return user
 
         device_name = request.json.get('name', '').strip()
 
@@ -528,11 +557,9 @@ def init_api():
         Sends request to the user's device to update it
         :return: JSON {success: boolean, message: description}
         """
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
-
-        user = User.query.filter_by(mail=user_mail).first()
+        user = get_user()
+        if type(user) == Response:
+            return user
 
         device_uid = request.json.get('id', '').strip()
         device = Device.query.filter_by(uid=device_uid, user=user).first()
@@ -553,11 +580,9 @@ def init_api():
         Deletes user's device. (specified in the "id" POST key)
         :return: JSON {success: boolean, message: description}
         """
-        user_mail = get_user()
-        if type(user_mail) == Response:
-            return user_mail
-
-        user = User.query.filter_by(mail=user_mail).first()
+        user = get_user()
+        if type(user) == Response:
+            return user
 
         device_uid = request.json.get('id', '').strip()
         device = Device.query.filter_by(uid=device_uid, user=user).first()
