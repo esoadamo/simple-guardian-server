@@ -416,6 +416,22 @@ def init_api():
 
         return make_respond(bcrypt.checkpw(password, user.password))
 
+    @app.route("/api/password/change", methods=["POST"])
+    def api_password_change():
+        user_mail = get_user()
+        if type(user_mail) == Response:
+            return user_mail
+
+        user = User.query.filter_by(mail=user_mail).first()
+        password = request.json.get('password', '').encode('utf8').strip()
+
+        if len(password) == 0:
+            return make_respond('No new password supplied', status='error')
+
+        user.password = bcrypt.hashpw(password, bcrypt.gensalt())
+        db.session.commit()
+        return make_respond('ok')
+
     @app.route("/api/register", methods=["POST"])
     def api_register():
         mail = request.json.get('mail', '').strip()
