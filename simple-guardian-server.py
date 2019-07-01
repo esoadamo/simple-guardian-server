@@ -20,6 +20,7 @@ try:
     from flask_sqlalchemy import SQLAlchemy
     from flask_cors import CORS
     from sqlalchemy.orm import joinedload
+    from sqlalchemy import desc
     from datetime import datetime
     from threading import Thread
 
@@ -641,7 +642,7 @@ def init_api():
                     'time': attack.time,
                     'user': attack.user,
                     'profile': attack.profile
-                } for attack in device.attacks[:300]
+                } for attack in Attack.query.filter_by(device=device).order_by(desc(Attack.time))[:300]
             ],
             'bans': [
                 {
@@ -649,7 +650,7 @@ def init_api():
                     'ip': ban.ip,
                     'time': ban.time,
                     'attacksCount': ban.attacks_count
-                } for ban in device.bans[:300]
+                } for ban in Ban.query.filter_by(device=device).order_by(desc(Ban.time))[:300]
             ],
             'profiles': [profile.id for profile in device.profiles]
         })
