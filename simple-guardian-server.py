@@ -27,6 +27,7 @@ try:
     from easycrypt import AESCipher
 finally:
     from the_runner.requirements_updater import RequirementsUpdater
+
     RequirementsUpdater().auto()
 
 DIR_DATABASES = os.path.abspath('db')  # directory with database and config.json
@@ -155,6 +156,12 @@ association_table_user_profile_likes = db.Table('users-profiles_likes', db.Model
                                                 db.Column('profile_id', db.Integer, db.ForeignKey('profile.id'))
                                                 )
 
+# noinspection PyUnresolvedReferences
+association_table_device_profile = db.Table('device-profile', db.Model.metadata,
+                                            db.Column('device_id', db.Integer, db.ForeignKey('device.id')),
+                                            db.Column('profile_id', db.Integer, db.ForeignKey('profile.id'))
+                                            )
+
 
 # noinspection PyUnresolvedReferences
 class Profile(db.Model):
@@ -247,6 +254,7 @@ class Device(db.Model):
     secret = db.Column(db.Text, unique=False, nullable=True)
     version = db.Column(db.Text, unique=False, nullable=True, default="0.0")
     config = db.Column(db.Text, unique=False, nullable=False, default="{}")
+    profiles = db.relationship("Profile", secondary=association_table_device_profile)
     installed = db.Column(db.Boolean, nullable=False, default=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
@@ -285,7 +293,7 @@ class Device(db.Model):
         :param asynchronous: True if you are not calling this function from Flask thread
         :return: None
         """
-        if not sid in SID_LOGGED_IN:
+        if sid not in SID_LOGGED_IN:
             return
         # emit dict of device names and uids
         f_emit = sio.emit if not asynchronous else AsyncSio.emit
@@ -304,7 +312,7 @@ class Device(db.Model):
         :param device_name: name of the new device
         :return: None
         """
-        if not sid in SID_LOGGED_IN:
+        if sid not in SID_LOGGED_IN:
             return
         while True:
             device_uid = uuid4().hex
@@ -324,7 +332,7 @@ class Device(db.Model):
         :param device_id: id of the device to be deleted
         :return: None
         """
-        if not sid in SID_LOGGED_IN:
+        if sid not in SID_LOGGED_IN:
             return
         Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
         db.session.commit()
@@ -407,7 +415,7 @@ def init_api():
         user = get_user()
         if type(user) == Response:
             return user
-        return make_respond(user.mail)
+        return make_respond({'username': user.mail, 'id': user.id})
 
     @app.route("/api/device/list")
     def api_device_list():
@@ -486,6 +494,111 @@ def init_api():
 
         return make_respond({'register': 'ok', 'message': 'You are registered now', 'key': user_secret.make(mail)})
 
+    @app.route("/api/hub/list")
+    def api_hub_list():
+        """
+        Lists all hub profiles and returns them
+        :return: data about hub profiles in JSON format
+        """
+        return make_respond(
+            [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
+             for profile in Profile.query.all()])
+
+    @app.route("/api/hub/profile/-1", methods=['POST'])
+    def api_hub_profile_new():
+        return api_hub_profile(-1)
+
+    @app.route("/api/hub/profile/<int:profile_id>/send", methods=['POST'])
+    def api_hub_profile_send(profile_id):  # type: (int) -> any
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        profile = Profile.query.filter_by(id=profile_id).first()  # type: Profile
+        devices = [Device.query.filter_by(uid=uid, user=user).first() for uid in request.json.get('devices', [])]
+
+        if None in devices:
+            return make_respond('This devices does not exist', status='error')
+
+        if profile is None:
+            return make_respond('This profile does not exist', status='error')
+
+        [device.profiles.append(profile) for device in devices if profile not in device.profiles]
+        db.session.commit()
+        return make_respond('OK')
+
+    @app.route("/api/hub/profile/<int:profile_id>", methods=['GET', 'POST'])
+    def api_hub_profile(profile_id):  # type: (int) -> any
+        """
+        GET: Lists all hub profiles and returns them
+        POST: take profile as data param and save it into database and return success message
+        :return: data about hub profiles in JSON format
+        """
+        profile = Profile.query.filter_by(id=profile_id).first()  # type: Profile
+        new_profile = False
+
+        if profile is None and profile_id == -1 and request.method == 'POST':
+            profile = Profile()
+            new_profile = True
+
+        if profile is None:
+            return make_respond('This profile does not exist', status='error')
+
+        if request.method == 'GET':
+            return make_respond({
+                'name': profile.name,
+                'id': profile.id,
+                'description': profile.description,
+                'config': list(json.loads(profile.config).values())[0],
+                'author': profile.author.id
+            })
+
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        if not new_profile and profile.author != user:
+            return make_respond('You are not allowed to do that', status='error')
+
+        data = request.json.get('data')
+
+        if data is None:
+            return make_respond('You forgot to send profile data', status='error')
+
+        profile.author = user
+        profile.updated = datetime.now()
+        profile.description = data['description']
+        profile.name = data['name']
+        profile.config = json.dumps({profile.name: data['config']})
+
+        if new_profile:
+            db.session.add(profile)
+        db.session.commit()
+        return make_respond({'id': profile.id, 'message': 'Profile saved'})
+
+    @app.route("/api/hub/profile/delete", methods=["POST"])
+    def api_hub_profile_delete():
+        """
+        Deletes profile is user is his author
+        :return: message about success / fail
+        """
+
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        profile = Profile.query.filter_by(id=request.json.get('id')).first()  # type: Profile
+        if profile is None:
+            return make_respond('This profile does not exist', status='error')
+
+        if user != profile.author:
+            return make_respond('You do not have permissions to do this', status='error')
+
+        profile.delete()
+        db.session.commit()
+
+        return make_respond("Profile deleted")
+
     @app.route("/api/device/<string:device_uid>/info")
     def api_device_info(device_uid):  # type: (str) -> any
         """
@@ -523,7 +636,7 @@ def init_api():
                     'attacksCount': ban.attacks_count
                 } for ban in device.bans
             ],
-            'config': json.loads(device.config)
+            'profiles': [profile.id for profile in device.profiles]
         })
 
     @app.route("/api/device/create", methods=["POST"])
