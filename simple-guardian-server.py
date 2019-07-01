@@ -253,11 +253,20 @@ class Device(db.Model):
     name = db.Column(db.Text, unique=False, nullable=False)
     secret = db.Column(db.Text, unique=False, nullable=True)
     version = db.Column(db.Text, unique=False, nullable=True, default="0.0")
-    config = db.Column(db.Text, unique=False, nullable=False, default="{}")
     profiles = db.relationship("Profile", secondary=association_table_device_profile)
     installed = db.Column(db.Boolean, nullable=False, default=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
+
+    @property
+    def config(self):  # type: () -> str
+        """
+        Get JSON file profile for the simple guardian client with online configuration
+        :return: content of the JSON profile file
+        """
+        data = {}
+        [data.update(json.loads(profile.config)) for profile in self.profiles]
+        return json.dumps(data)
 
     def is_online(self) -> bool:
         """
@@ -523,7 +532,13 @@ def init_api():
         if profile is None:
             return make_respond('This profile does not exist', status='error')
 
-        [device.profiles.append(profile) for device in devices if profile not in device.profiles]
+        for device in devices:
+            if profile in device.profiles:
+                continue
+            device.profiles.append(profile)
+            if device.is_online():
+                hss.emit(device.get_sid(), 'config', device.config)
+
         db.session.commit()
         return make_respond('OK')
 
