@@ -626,7 +626,7 @@ def init_api():
                     'time': attack.time,
                     'user': attack.user,
                     'profile': attack.profile
-                } for attack in device.attacks
+                } for attack in device.attacks[:300]
             ],
             'bans': [
                 {
@@ -634,7 +634,7 @@ def init_api():
                     'ip': ban.ip,
                     'time': ban.time,
                     'attacksCount': ban.attacks_count
-                } for ban in device.bans
+                } for ban in device.bans[:300]
             ],
             'profiles': [profile.id for profile in device.profiles]
         })
