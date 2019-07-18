@@ -185,6 +185,8 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     mail = db.Column(db.Text, unique=True, nullable=False)
     admin = db.Column(db.Boolean, nullable=False, default=False)
+    federated_block_list = db.Column(db.Boolean, nullable=False, default=False)
+    server_block_list = db.Column(db.Boolean, nullable=False, default=False)
     password = db.Column(db.Text, unique=False, nullable=False)
 
     def delete(self):  # type: () -> None
@@ -1537,6 +1539,7 @@ class ThreadAskOnlineDevicesForNewAttacks(Thread):
             for online_device_sid in HSSOperator.sid_device_id_link.keys():
                 hss.emit(online_device_sid, 'getAttacks', {'userSid': None, 'before': None})
                 hss.emit(online_device_sid, 'getBans', {'userSid': None, 'before': None})
+                hss.emit(online_device_sid, 'blocklist')
             AppRunning.sleep_while_running(5 * 60)
 
 
