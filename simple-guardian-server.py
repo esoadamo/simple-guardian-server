@@ -458,6 +458,18 @@ def init_api():
             return user
         return make_respond({'username': user.mail, 'id': user.id})
 
+    @app.route("/api/user/isOn/federatedSharing", methods=['GET', 'POST'])
+    def api_user_user_is_on_federated_sharing():
+        user = get_user()  # type: User
+        if type(user) == Response:
+            return user
+
+        if request.method == 'POST':
+            user.federated_block_list = request.json.get('on')
+            db.session.commit()
+
+        return make_respond({'on': user.federated_block_list})
+
     @app.route("/api/device/list")
     def api_device_list():
         user = get_user()
