@@ -268,8 +268,37 @@ class Device(db.Model):
         :return: content of the JSON profile file
         """
         data = {}
-        [data.update(json.loads(profile.config)) for profile in self.profiles]
+        for profile in self.profiles:
+            profile_data = json.loads(profile.config)
+            # add profile ID to identify this profile when using legacy web GUI
+            profile_data[list(profile_data.keys())[0]]['hubID'] = profile.id
+            data.update(profile_data)
         return json.dumps(data)
+
+    @config.setter
+    def config(self, value):  # type: (str) -> None
+        """
+        When legacy web UI is used to set profiles directly, map them based on the hubID property inside them
+        :param value: JSON profile format
+        :return: None
+        """
+        value = json.loads(value)
+        new_profiles = set()
+        for profile_data in value.values():
+            if 'hubID' not in profile_data:
+                continue
+            profile = Profile.query.filter_by(id=profile_data.get('hubID')).first()
+            if profile is None:
+                continue
+            new_profiles.add(profile)
+            if profile not in self.profiles:
+                self.profiles.append(profile)
+
+        # remove profiles that were not part of the pushed config
+        [self.profiles.remove(profile) for profile in
+         {profile for profile in self.profiles if profile not in new_profiles}]
+
+        db.session.commit()
 
     def is_online(self) -> bool:
         """
@@ -876,7 +905,9 @@ def init_old_web_ui():
                 if device is None:
                     continue
                 config = json.loads(device.config)
-                config.update(json.loads(profile.config))
+                profile_data = json.loads(profile.config)
+                profile_data[list(profile_data.keys())[0]]['hubID'] = profile.id
+                config.update(profile_data)
                 device.config = json.dumps(config)
                 if device.is_online():
                     hss.emit(device.get_sid(), 'config', device.config)
