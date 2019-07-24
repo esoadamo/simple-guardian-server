@@ -617,6 +617,38 @@ def init_api():
 
         return make_respond("Profile deleted")
 
+    @app.route("/api/hub/profile/remove", methods=["POST"])
+    def api_hub_profile_remove():
+        """
+        Removes profile from device
+        :return: message about success / fail
+        """
+
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        profile = Profile.query.filter_by(id=request.json.get('id')).first()  # type: Profile
+        device = Device.query.filter_by(uid=request.json.get('device')).first()  # type: Device
+
+        if profile is None:
+            return make_respond('This profile does not exist', status='error')
+
+        if device is None:
+            return make_respond('This device does not exist', status='error')
+
+        if device.user != user:
+            return make_respond('You do not have permission to to this', status='error')
+
+        if profile not in device.profiles:
+            return make_respond('This profile is not assigned to this device', status='error')
+
+        device.profiles.remove(profile)
+
+        db.session.commit()
+
+        return make_respond("%s removed from %s" % (profile.name, device.name))
+
     @app.route("/api/device/<string:device_uid>/info")
     def api_device_info(device_uid):  # type: (str) -> any
         """
