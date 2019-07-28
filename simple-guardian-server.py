@@ -329,7 +329,7 @@ class Device(db.Model):
         Deletes this device and all cached attacks and bans linked with this device
         :return: None
         """
-        [[item.delete() for item in items] for items in [self.attacks, self.bans]]
+        [[item.delete() for item in items] for items in [self.attacks, self.bans, self.offline_actions]]
         self.__class__.query.filter_by(id=self.id).delete()
 
     @staticmethod
@@ -407,6 +407,17 @@ class Ban(db.Model):
     attacks_count = db.Column(db.Integer, unique=False, nullable=True)
     device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
     device = db.relationship('Device', backref=db.backref('bans', lazy=True))
+
+    def delete(self):
+        self.__class__.query.filter_by(id=self.id).delete()
+
+
+class OfflineAction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.Text, unique=False, nullable=False)
+    value = db.Column(db.Text, unique=False, nullable=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    device = db.relationship('Device', backref=db.backref('offline_actions', lazy=True))
 
     def delete(self):
         self.__class__.query.filter_by(id=self.id).delete()
@@ -787,9 +798,48 @@ def init_api():
 
         device_sid = device.get_sid()
         if device_sid is None:
-            return make_respond({'success': False, 'message': 'Device is offline'})
+            if OfflineAction.query.filter_by(device=device, name='update').first() is not None:
+                return make_respond({'success': True, 'message': 'This action is already in queue'})
+
+            db.session.add(OfflineAction(device=device, name='update', value=None))
+            db.session.commit()
+            return make_respond({'success': True, 'message': 'The action will be performed'
+                                                             ' when the device will become online again'})
 
         hss.emit(device_sid, 'update')
+        return make_respond({'success': True, 'message': 'Request sent'})
+
+    @app.route("/api/device/unban", methods=["POST"])
+    def api_device_unban():
+        """
+        Sends request to the user's device to unban specific IP
+        :return: JSON {success: boolean, message: description}
+        """
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        device_uid = request.json.get('id', '').strip()
+        unban_ip = request.json.get('ip', '').strip()
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        device_sid = device.get_sid()
+        if device_sid is None:
+            if OfflineAction.query.filter_by(device=device, name='unblock_ip', value=unban_ip).first() is not None:
+                return make_respond({'success': True, 'message': 'This action is already in queue'})
+
+            db.session.add(OfflineAction(device=device, name='unblock_ip', value=unban_ip))
+            db.session.commit()
+            return make_respond({'success': True, 'message': 'The action will be performed'
+                                                             ' when the device will become online again'})
+
+        hss.emit(device_sid, 'unblock_ip', unban_ip)
+        ban = Ban.query.filter_by(device=device, ip=unban_ip)
+        if ban is not None:
+            ban.delete()
         return make_respond({'success': True, 'message': 'Request sent'})
 
     @app.route("/api/device/delete", methods=["POST"])
@@ -815,7 +865,7 @@ def init_api():
     @app.route("/api/device/rename", methods=["POST"])
     def api_device_rename():
         """
-        Deletes user's device. (specified in the "id" POST key)
+        Renames user's device. (specified in the "id" and "name" POST keys)
         :return: JSON {success: boolean, message: description}
         """
         user = get_user()
@@ -1626,7 +1676,16 @@ class HSSOperator:
         HSSOperator.sid_device_id_link[soc.sid] = device.id
         soc.emit('login', True)
         soc.emit('config', device.config)
-        soc.set_asking_timeout(5 if User.is_online_by_mail(device.user.mail) else 15)
+        soc.set_asking_timeout(14)
+        for action in device.offline_actions:  # type: OfflineAction
+            soc.emit(action.name, action.value)
+
+            if action.name == 'unblock_ip':
+                ban = Ban.query.filter_by(device=device, ip=action.value)
+                if ban is not None:
+                    ban.delete()
+
+            action.delete()
         [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
