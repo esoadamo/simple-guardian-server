@@ -256,7 +256,8 @@ class Device(db.Model):
     name = db.Column(db.Text, unique=False, nullable=False)
     secret = db.Column(db.Text, unique=False, nullable=True)
     version = db.Column(db.Text, unique=False, nullable=True, default="0.0")
-    profiles = db.relationship("Profile", secondary=association_table_device_profile)
+    profiles = db.relationship("Profile",
+                               secondary=association_table_device_profile, backref=db.backref('devices', lazy=True))
     installed = db.Column(db.Boolean, nullable=False, default=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
@@ -490,6 +491,7 @@ def init_api():
             User.login(mail, password)
             return make_respond({'login': 'ok', 'key': user_secret.make(mail)})
         except LoginException:
+            CONFIG['logger'].warn("%s tried to log in as user \"%s\", but failed" % (request.remote_addr, mail))
             return make_respond({'login': 'failed', 'key': None})
 
     @app.route("/api/user/delete")
@@ -554,7 +556,7 @@ def init_api():
         :return: data about hub profiles in JSON format
         """
         return make_respond(
-            [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
+            [{'name': profile.name, 'likes': len(profile.devices), 'id': profile.id, 'official': profile.official}
              for profile in Profile.query.all()])
 
     @app.route("/api/hub/profile/-1", methods=['POST'])
