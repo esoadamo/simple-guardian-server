@@ -800,6 +800,31 @@ def init_api():
         db.session.commit()
         return make_respond({'success': True, 'message': 'Device deleted'})
 
+    @app.route("/api/device/rename", methods=["POST"])
+    def api_device_rename():
+        """
+        Deletes user's device. (specified in the "id" POST key)
+        :return: JSON {success: boolean, message: description}
+        """
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        device_uid = request.json.get('id', '').strip()
+        device_name = request.json.get('name', '').strip()
+
+        if len(device_name) == 0:
+            return make_respond({'success': False, 'message': 'Name can not be empty'})
+
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        device.name = device_name
+        db.session.commit()
+        return make_respond({'success': True, 'message': 'Device renamed'})
+
     @app.route("/api/device/new/<string:user_mail>/<string:device_id>", methods=['GET', 'POST'])
     def api_device_new(user_mail, device_id):  # type: (str, str) -> str
         """
