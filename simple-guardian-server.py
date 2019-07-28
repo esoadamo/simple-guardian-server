@@ -1,3 +1,5 @@
+from typing import List
+
 try:
     import json
     import os
@@ -36,8 +38,9 @@ CONFIG = {  # dictionary with config. Is overwritten by config.json
     'port': 7221,  # port of the web server
     'forceHTTPS': False,  # if set to True, every generated URL if forced to start with https://
     'logFile': None,  # type: None or str  # string is the path to the file in which the logs will be saved
-    'logger': None  # type: logging.Logger  # the Logger object that is used by this application to log.
+    'logger': None,  # type: logging.Logger  # the Logger object that is used by this application to log.
     # Initialized in logging_init()
+    'newDeviceProfiles': []  # type: List[int] # the list of IDs of profiles which are applied to newly created devices
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}, stores login data about clients that are trying to log in
@@ -173,8 +176,11 @@ class Profile(db.Model):
     description = db.Column(db.Text, unique=False, nullable=False)
     config = db.Column(db.Text, unique=False, nullable=False)
     likes = db.relationship("User", secondary=association_table_user_profile_likes)
-    official = db.Column(db.Boolean, nullable=False, default=False)
     updated = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    @property
+    def official(self):
+        return self.author.admin
 
     def delete(self):
         self.__class__.query.filter_by(id=self.id).delete()
@@ -752,7 +758,13 @@ def init_api():
             if Device.query.filter_by(uid=device_uid).first() is None:
                 break
 
-        device = Device(name=device_name, uid=device_uid, user=user)
+        new_device_profiles = []
+        for profile_id in CONFIG['newDeviceProfiles']:
+            profile = Profile.query.filter_by(id=profile_id).first()
+            if profile is not None:
+                new_device_profiles.append(profile)
+
+        device = Device(name=device_name, uid=device_uid, user=user, profiles=new_device_profiles)
         db.session.add(device)
         db.session.commit()
         return make_respond({'status': 'ok', 'message': 'Device created', 'id': device_uid})
