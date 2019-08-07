@@ -724,6 +724,10 @@ def init_api():
         if device is None:
             return make_respond({}, status='error')
 
+        device_attacks = Attack.query.filter_by(device=device).order_by(desc(Attack.time)).all()
+        device_bans = Ban.query.filter_by(device=device).order_by(desc(Ban.time)).all()
+        time_yesterday = time.time() - (24 * 3600)
+
         return make_respond({
             'id': device.uid,
             'name': device.name,
@@ -736,7 +740,7 @@ def init_api():
                     'time': attack.time,
                     'user': attack.user,
                     'profile': attack.profile
-                } for attack in Attack.query.filter_by(device=device).order_by(desc(Attack.time))[:300]
+                } for attack in device_attacks[:300]
             ],
             'bans': [
                 {
@@ -744,8 +748,18 @@ def init_api():
                     'ip': ban.ip,
                     'time': ban.time,
                     'attacksCount': ban.attacks_count
-                } for ban in Ban.query.filter_by(device=device).order_by(desc(Ban.time))[:300]
+                } for ban in device_bans[:300]
             ],
+            'stats': {
+                'attacks': {
+                    'total': len(device_attacks),
+                    'today': len([a for a in device_attacks if a.time > time_yesterday])
+                },
+                'bans': {
+                    'total': len(device_bans),
+                    'today': len([b for b in device_bans if b.time > time_yesterday])
+                }
+            },
             'profiles': [profile.id for profile in device.profiles]
         })
 
