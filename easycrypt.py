@@ -7,11 +7,11 @@ from base64 import b64encode, b64decode
 class AESCipher:
     block_size = 16
 
-    def __init__(self, key):  # type: (str or bytes) -> None
+    def __init__(self, key):
         if len(key) not in [16, 24, 32]:
             key = sha256(key.encode('utf8')).hexdigest()[-32:]
-        if type(key) == str:
-            key = key.encode('utf8', errors='replace')
+        if not type(key) is bytes:
+            key = key.encode('utf8')
         self.key = key
 
     def encrypt(self, raw):
@@ -53,4 +53,4 @@ if __name__ == '__main__':
         print('================')
         print(decrypted_text)
     else:
-        print('OK') 
+        print('OK')
