@@ -45,6 +45,7 @@ input, textarea {
   justify-content: space-between;
   background: #cccccc;
   font-size: 18px;
+  width: 100%;
 }
 
 .errorMsg {
