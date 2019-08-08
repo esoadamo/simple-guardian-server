@@ -389,7 +389,7 @@ class Device(db.Model):
 
 class Attack(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    time = db.Column(db.Integer, unique=True, nullable=True)
+    time = db.Column(db.Integer, unique=False, nullable=True)
     profile = db.Column(db.Text, unique=False, nullable=True)
     user = db.Column(db.Text, unique=False, nullable=True)
     ip = db.Column(db.Text, unique=False, nullable=True)
@@ -1607,7 +1607,7 @@ class HSSOperator:
             return
         data = json.loads(data)
 
-        sender = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()
+        sender = Device.query.filter_by(id=HSSOperator.sid_device_id_link[soc.sid]).first()  # type: Device
 
         commit_db = False
         for ban in data.get('bans', []):
@@ -1620,6 +1620,18 @@ class HSSOperator:
 
         if commit_db:
             db.session.commit()
+
+        # if user enabled it, send federated block list
+        block_list = set()
+        if sender.user.federated_block_list:
+            federated_block_list = []
+            for another_device in sender.user.devices:  # type: Device
+                if sender.id == another_device.id:
+                    continue
+                federated_block_list.extend([ban.ip for ban in another_device.bans])
+            block_list.update(federated_block_list)
+
+        soc.emit('blocklist', list(block_list))
 
         client_sid = data.get('userSid', '')
         if client_sid not in SID_LOGGED_IN:
@@ -1726,17 +1738,6 @@ class ThreadAskOnlineDevicesForNewAttacks(Thread):
             for online_device_sid in HSSOperator.sid_device_id_link.keys():
                 hss.emit(online_device_sid, 'getAttacks', {'userSid': None, 'before': None})
                 hss.emit(online_device_sid, 'getBans', {'userSid': None, 'before': None})
-
-                # if user enabled it, send federated block list
-                device = HSSOperator.sid_device_id_link[online_device_sid]
-                if device.user.federated_block_list:
-                    federated_block_list = []
-                    for another_device in device.user.devices:  # type: Device
-                        if device.id == another_device.id:
-                            continue
-                        federated_block_list.extend([ban.ip for ban in device.bans])
-
-                    hss.emit(online_device_sid, 'blocklist', list(set(federated_block_list)))
             AppRunning.sleep_while_running(5 * 60)
 
 
