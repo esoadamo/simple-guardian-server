@@ -57,7 +57,7 @@ with zipfile.ZipFile(zip_file, "r") as zip_ref:
 os.unlink(zip_file)
 
 print('running simple-guardian\'s installer')
-run([sys.executable, '{0}/install.py'.format(extracted_dir)])
+run([sys.executable, '{0}/simple-guardian-master/install.py'.format(extracted_dir)])
 
 print('removing source files')
 shutil.rmtree(extracted_dir)
