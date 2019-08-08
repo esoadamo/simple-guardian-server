@@ -1206,7 +1206,7 @@ def init_old_web_ui():
         logged_in = not User.does_need_login()
         return render_template('welcome.html', logged_in=logged_in, username=session.get('mail', 'undefined'))
 
-    @app.route("/api/<user_mail>/new_device/<device_id>", methods=['GET', 'POST'])
+    @app.route("/api/device/new//<user_mail>/<device_id>", methods=['GET', 'POST'])
     def login_new_device(user_mail, device_id):  # type: (str, str) -> str
         """
         On GET shows user information that this page is accessible only by using the SG client
@@ -1230,7 +1230,7 @@ def init_old_web_ui():
         return json.dumps({'service': 'simple-guardian',
                            'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
 
-    @app.route("/api/<user_mail>/new_device/<device_id>/auto")
+    @app.route("/api/device/new/<user_mail>/<device_id>/auto")
     def autoinstall_new_device(user_mail, device_id):
         """
         Gives device a Python script which will install the SG client on the device and pair it with the server
@@ -1719,14 +1719,24 @@ class HSSOperator:
 class ThreadAskOnlineDevicesForNewAttacks(Thread):
     def run(self):  # type: () -> None
         """
-        Periodically asks device about its status to cache it into dabase
-        :return:
+        Periodically asks device about its status to cache it into database
+        :return: None
         """
         while AppRunning.is_running():
             for online_device_sid in HSSOperator.sid_device_id_link.keys():
                 hss.emit(online_device_sid, 'getAttacks', {'userSid': None, 'before': None})
                 hss.emit(online_device_sid, 'getBans', {'userSid': None, 'before': None})
-                hss.emit(online_device_sid, 'blocklist')
+
+                # if user enabled it, send federated block list
+                device = HSSOperator.sid_device_id_link[online_device_sid]
+                if device.user.federated_block_list:
+                    federated_block_list = []
+                    for another_device in device.user.devices:  # type: Device
+                        if device.id == another_device.id:
+                            continue
+                        federated_block_list.extend([ban.ip for ban in device.bans])
+
+                    hss.emit(online_device_sid, 'blocklist', list(set(federated_block_list)))
             AppRunning.sleep_while_running(5 * 60)
 
 
