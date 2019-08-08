@@ -1,97 +1,74 @@
 import sys
 import os
+import urllib.request
+import tempfile
+import zipfile
+import shutil
+from subprocess import check_call, CalledProcessError
+
+login_key = "{{ login_key }}"
+zip_url = "{{ zip_url }}"
+zip_file = tempfile.mkstemp()[1]
+target_directory = "/usr/share/simple-guardian"
 
 
-def process(cmd):
-    if os.system(cmd) != 0:
-        print('installation failed')
-        exit(1)
+def run(cmd):
+    try:
+        check_call(cmd)
+    except CalledProcessError:
+        print('ERRROR: running command "%s" failed for some reason' % cmd)
+    except OSError:
+        print('ERRROR: running command "%s" failed - the command was not found' % cmd)
 
 
-def main():
-    import urllib.request
-    import tempfile
-    import zipfile
-    import shutil
-
-    login_key = "{{ login_key }}"
-    zip_url = "{{ zip_url }}"
-    zip_file = tempfile.mkstemp()[1]
-    target_directory = "/usr/share/simple-guardian"
-    username = "simpleguardian"
-
-    print('obtaining latest release from %s' % zip_url)
-    urllib.request.urlretrieve(zip_url, zip_file)
-
-    print('extracting zip content into temporary folder')
-    extracted_dir = tempfile.mkdtemp()
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        zip_ref.extractall(extracted_dir)
-    os.unlink(zip_file)
-    source_dir = os.path.join(extracted_dir, os.listdir(extracted_dir)[0])
-    files_from_to = {os.path.join(source_dir, filename): os.path.join(target_directory, filename)
-                     for filename in os.listdir(source_dir)}
-
-    print('moving files into %s' % target_directory)
-    for file_from, file_to in files_from_to.items():
-        parent_dir = os.path.abspath(os.path.join(file_to, os.path.pardir))
-        if not os.path.isdir(parent_dir):
-            os.makedirs(parent_dir)
-        shutil.move(file_from, file_to)
-    shutil.rmtree(extracted_dir)
-
-    print('creating %s user' % username)
-    process("useradd %s" % username)
-    print('adding %s to adm group' % username)
-    process("usermod -a -G adm %s" % username)
-    print('giving folder permissions to %s' % username)
-    process("chown -R %s %s" % (username, target_directory))
-    print('giving executing rights on blocker executable and assigning him to the root with setuid')
-    process("chown root:root %s/blocker" % target_directory)
-    process("chmod +x %s/blocker" % target_directory)
-    process("chmod u+s %s/blocker" % target_directory)
-    print('creating venv')
-    process("%s -m venv %s" % (sys.executable, os.path.join(target_directory, 'venv')))
-    pip_path = os.path.join(target_directory, 'venv', 'bin', 'pip')
-    print('installing requirements')
-    process("%s install -r %s" % (pip_path, os.path.join(target_directory, 'requirements.txt')))
-    print('adding client simple-guardian-client')
-    with open('/usr/bin/simple-guardian-client', 'w') as f:
-        f.write("""#!/bin/bash
-cd "%s"
-./venv/bin/python simple-guardian.py client "$@"
-""" % target_directory)
-    process("chmod +x /usr/bin/simple-guardian-client")
-    print('loging in with server')
-    process("simple-guardian-client login \"%s\"" % login_key)
-    print('installing system service')
-    with open('/etc/systemd/system/simple-guardian.service', 'w') as f:
-        f.write("""[Unit]
-Description=Simple-guardian service
-After=network.target
-
-[Service]
-Type=simple
-User=%s
-WorkingDirectory=%s
-ExecStart=%s/venv/bin/python simple-guardian.py
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target""" % (username, target_directory, target_directory))
-    print('starting service')
-    process('sudo service simple-guardian start')
-    print('you are protected now!')
-
-
+# CHECK REQUIREMENTS
+# - check Python 3 is ued
 if sys.version_info[0] != 3:
     print('you must run this auto installer with Python 3')
+    print("ERROR: CHECKING REQUIREMENTS FAILED")
     exit(1)
+# - check root right are available
 if os.geteuid() != 0:
     print('you must give this script root\'s rights')
+    print("ERROR: CHECKING REQUIREMENTS FAILED")
     exit(1)
-if os.system("%s -m pip -V" % sys.executable) != 0 and os.system("%s -m ensurepip" % sys.executable) != 0:
-    print('you must install pip AND ensurepip (venv) before running this script')
-    print('on ubuntu/debian system run "apt install -y python3-pip python3-venv"')
-    exit(1)
-main()
+# - check that pip and venv are installed
+try:
+    check_call([sys.executable, '-m', 'pip', '-V'])
+    check_call([sys.executable, '-m', 'ensurepip'])
+except CalledProcessError:
+    print('it seems that pip/venv is/are missing. I will try to compensate that')
+    try:
+        check_call(['apt', 'install', '-y', 'python3-pip', 'python3-venv'])
+    except CalledProcessError:
+        print("that didn't make it better, this one is on you")
+        print("try to install python3-pip python3-venv on Ubuntu/Debian based systems")
+        print("ERROR: CHECKING REQUIREMENTS FAILED")
+        exit(1)
+print('requirements checked, all OK')
+
+print('obtaining latest release from %s' % zip_url)
+urllib.request.urlretrieve(zip_url, zip_file)
+
+print('extracting zip content into temporary folder')
+extracted_dir = tempfile.mkdtemp()
+with zipfile.ZipFile(zip_file, "r") as zip_ref:
+    zip_ref.extractall(extracted_dir)
+os.unlink(zip_file)
+
+print('running simple-guardian\'s installer')
+run([sys.executable, '{0}/install.py'.format(extracted_dir)])
+
+print('removing source files')
+shutil.rmtree(extracted_dir)
+
+print('logging in with server')
+run(['simple-guardian-client', 'login', login_key])
+
+print('removing packed profiles')
+os.unlink(target_directory + "/data/profiles/default.json")
+
+print('restarting service')
+run(['service', 'simple-guardian', 'restart'])
+
+print('all done')

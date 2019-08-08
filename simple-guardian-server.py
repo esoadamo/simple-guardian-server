@@ -1,3 +1,5 @@
+from typing import List
+
 try:
     import json
     import os
@@ -36,8 +38,9 @@ CONFIG = {  # dictionary with config. Is overwritten by config.json
     'port': 7221,  # port of the web server
     'forceHTTPS': False,  # if set to True, every generated URL if forced to start with https://
     'logFile': None,  # type: None or str  # string is the path to the file in which the logs will be saved
-    'logger': None  # type: logging.Logger  # the Logger object that is used by this application to log.
+    'logger': None,  # type: logging.Logger  # the Logger object that is used by this application to log.
     # Initialized in logging_init()
+    'newDeviceProfiles': []  # type: List[int] # the list of IDs of profiles which are applied to newly created devices
 }
 
 SID_SECRETS = {}  # sid: {secret, mail}, stores login data about clients that are trying to log in
@@ -173,8 +176,11 @@ class Profile(db.Model):
     description = db.Column(db.Text, unique=False, nullable=False)
     config = db.Column(db.Text, unique=False, nullable=False)
     likes = db.relationship("User", secondary=association_table_user_profile_likes)
-    official = db.Column(db.Boolean, nullable=False, default=False)
     updated = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    @property
+    def official(self):
+        return self.author.admin
 
     def delete(self):
         self.__class__.query.filter_by(id=self.id).delete()
@@ -256,7 +262,8 @@ class Device(db.Model):
     name = db.Column(db.Text, unique=False, nullable=False)
     secret = db.Column(db.Text, unique=False, nullable=True)
     version = db.Column(db.Text, unique=False, nullable=True, default="0.0")
-    profiles = db.relationship("Profile", secondary=association_table_device_profile)
+    profiles = db.relationship("Profile",
+                               secondary=association_table_device_profile, backref=db.backref('devices', lazy=True))
     installed = db.Column(db.Boolean, nullable=False, default=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('devices', lazy=True))
@@ -268,8 +275,37 @@ class Device(db.Model):
         :return: content of the JSON profile file
         """
         data = {}
-        [data.update(json.loads(profile.config)) for profile in self.profiles]
+        for profile in self.profiles:
+            profile_data = json.loads(profile.config)
+            # add profile ID to identify this profile when using legacy web GUI
+            profile_data[list(profile_data.keys())[0]]['hubID'] = profile.id
+            data.update(profile_data)
         return json.dumps(data)
+
+    @config.setter
+    def config(self, value):  # type: (str) -> None
+        """
+        When legacy web UI is used to set profiles directly, map them based on the hubID property inside them
+        :param value: JSON profile format
+        :return: None
+        """
+        value = json.loads(value)
+        new_profiles = set()
+        for profile_data in value.values():
+            if 'hubID' not in profile_data:
+                continue
+            profile = Profile.query.filter_by(id=profile_data.get('hubID')).first()
+            if profile is None:
+                continue
+            new_profiles.add(profile)
+            if profile not in self.profiles:
+                self.profiles.append(profile)
+
+        # remove profiles that were not part of the pushed config
+        [self.profiles.remove(profile) for profile in
+         {profile for profile in self.profiles if profile not in new_profiles}]
+
+        db.session.commit()
 
     def is_online(self) -> bool:
         """
@@ -293,7 +329,7 @@ class Device(db.Model):
         Deletes this device and all cached attacks and bans linked with this device
         :return: None
         """
-        [[item.delete() for item in items] for items in [self.attacks, self.bans]]
+        [[item.delete() for item in items] for items in [self.attacks, self.bans, self.offline_actions]]
         self.__class__.query.filter_by(id=self.id).delete()
 
     @staticmethod
@@ -376,6 +412,17 @@ class Ban(db.Model):
         self.__class__.query.filter_by(id=self.id).delete()
 
 
+class OfflineAction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.Text, unique=False, nullable=False)
+    value = db.Column(db.Text, unique=False, nullable=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    device = db.relationship('Device', backref=db.backref('offline_actions', lazy=True))
+
+    def delete(self):
+        self.__class__.query.filter_by(id=self.id).delete()
+
+
 class UserSecret:
     def __init__(self, secret_key):  # type: (str) -> None
         self.__cypher = AESCipher(secret_key)
@@ -429,6 +476,18 @@ def init_api():
             return user
         return make_respond({'username': user.mail, 'id': user.id})
 
+    @app.route("/api/user/isOn/federatedSharing", methods=['GET', 'POST'])
+    def api_user_user_is_on_federated_sharing():
+        user = get_user()  # type: User
+        if type(user) == Response:
+            return user
+
+        if request.method == 'POST':
+            user.federated_block_list = request.json.get('on')
+            db.session.commit()
+
+        return make_respond({'on': user.federated_block_list})
+
     @app.route("/api/device/list")
     def api_device_list():
         user = get_user()
@@ -449,6 +508,7 @@ def init_api():
             User.login(mail, password)
             return make_respond({'login': 'ok', 'key': user_secret.make(mail)})
         except LoginException:
+            CONFIG['logger'].warn("%s tried to log in as user \"%s\", but failed" % (request.remote_addr, mail))
             return make_respond({'login': 'failed', 'key': None})
 
     @app.route("/api/user/delete")
@@ -513,7 +573,7 @@ def init_api():
         :return: data about hub profiles in JSON format
         """
         return make_respond(
-            [{'name': profile.name, 'likes': len(profile.likes), 'id': profile.id, 'official': profile.official}
+            [{'name': profile.name, 'likes': len(profile.devices), 'id': profile.id, 'official': profile.official}
              for profile in Profile.query.all()])
 
     @app.route("/api/hub/profile/-1", methods=['POST'])
@@ -664,6 +724,10 @@ def init_api():
         if device is None:
             return make_respond({}, status='error')
 
+        device_attacks = Attack.query.filter_by(device=device).order_by(desc(Attack.time)).all()
+        device_bans = Ban.query.filter_by(device=device).order_by(desc(Ban.time)).all()
+        time_yesterday = time.time() - (24 * 3600)
+
         return make_respond({
             'id': device.uid,
             'name': device.name,
@@ -676,7 +740,7 @@ def init_api():
                     'time': attack.time,
                     'user': attack.user,
                     'profile': attack.profile
-                } for attack in Attack.query.filter_by(device=device).order_by(desc(Attack.time))[:300]
+                } for attack in device_attacks[:300]
             ],
             'bans': [
                 {
@@ -684,8 +748,18 @@ def init_api():
                     'ip': ban.ip,
                     'time': ban.time,
                     'attacksCount': ban.attacks_count
-                } for ban in Ban.query.filter_by(device=device).order_by(desc(Ban.time))[:300]
+                } for ban in device_bans[:300]
             ],
+            'stats': {
+                'attacks': {
+                    'total': len(device_attacks),
+                    'today': len([a for a in device_attacks if a.time > time_yesterday])
+                },
+                'bans': {
+                    'total': len(device_bans),
+                    'today': len([b for b in device_bans if b.time > time_yesterday])
+                }
+            },
             'profiles': [profile.id for profile in device.profiles]
         })
 
@@ -709,7 +783,13 @@ def init_api():
             if Device.query.filter_by(uid=device_uid).first() is None:
                 break
 
-        device = Device(name=device_name, uid=device_uid, user=user)
+        new_device_profiles = []
+        for profile_id in CONFIG['newDeviceProfiles']:
+            profile = Profile.query.filter_by(id=profile_id).first()
+            if profile is not None:
+                new_device_profiles.append(profile)
+
+        device = Device(name=device_name, uid=device_uid, user=user, profiles=new_device_profiles)
         db.session.add(device)
         db.session.commit()
         return make_respond({'status': 'ok', 'message': 'Device created', 'id': device_uid})
@@ -732,9 +812,48 @@ def init_api():
 
         device_sid = device.get_sid()
         if device_sid is None:
-            return make_respond({'success': False, 'message': 'Device is offline'})
+            if OfflineAction.query.filter_by(device=device, name='update').first() is not None:
+                return make_respond({'success': True, 'message': 'This action is already in queue'})
+
+            db.session.add(OfflineAction(device=device, name='update', value=None))
+            db.session.commit()
+            return make_respond({'success': True, 'message': 'The action will be performed'
+                                                             ' when the device will become online again'})
 
         hss.emit(device_sid, 'update')
+        return make_respond({'success': True, 'message': 'Request sent'})
+
+    @app.route("/api/device/unban", methods=["POST"])
+    def api_device_unban():
+        """
+        Sends request to the user's device to unban specific IP
+        :return: JSON {success: boolean, message: description}
+        """
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        device_uid = request.json.get('id', '').strip()
+        unban_ip = request.json.get('ip', '').strip()
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        device_sid = device.get_sid()
+        if device_sid is None:
+            if OfflineAction.query.filter_by(device=device, name='unblock_ip', value=unban_ip).first() is not None:
+                return make_respond({'success': True, 'message': 'This action is already in queue'})
+
+            db.session.add(OfflineAction(device=device, name='unblock_ip', value=unban_ip))
+            db.session.commit()
+            return make_respond({'success': True, 'message': 'The action will be performed'
+                                                             ' when the device will become online again'})
+
+        hss.emit(device_sid, 'unblock_ip', unban_ip)
+        ban = Ban.query.filter_by(device=device, ip=unban_ip)
+        if ban is not None:
+            ban.delete()
         return make_respond({'success': True, 'message': 'Request sent'})
 
     @app.route("/api/device/delete", methods=["POST"])
@@ -756,6 +875,31 @@ def init_api():
         Device.query.filter_by(uid=device_uid, user=user).delete()
         db.session.commit()
         return make_respond({'success': True, 'message': 'Device deleted'})
+
+    @app.route("/api/device/rename", methods=["POST"])
+    def api_device_rename():
+        """
+        Renames user's device. (specified in the "id" and "name" POST keys)
+        :return: JSON {success: boolean, message: description}
+        """
+        user = get_user()
+        if type(user) == Response:
+            return user
+
+        device_uid = request.json.get('id', '').strip()
+        device_name = request.json.get('name', '').strip()
+
+        if len(device_name) == 0:
+            return make_respond({'success': False, 'message': 'Name can not be empty'})
+
+        device = Device.query.filter_by(uid=device_uid, user=user).first()
+
+        if device is None:
+            return make_respond({'success': False, 'message': 'Device does not exist'})
+
+        device.name = device_name
+        db.session.commit()
+        return make_respond({'success': True, 'message': 'Device renamed'})
 
     @app.route("/api/device/new/<string:user_mail>/<string:device_id>", methods=['GET', 'POST'])
     def api_device_new(user_mail, device_id):  # type: (str, str) -> str
@@ -876,7 +1020,9 @@ def init_old_web_ui():
                 if device is None:
                     continue
                 config = json.loads(device.config)
-                config.update(json.loads(profile.config))
+                profile_data = json.loads(profile.config)
+                profile_data[list(profile_data.keys())[0]]['hubID'] = profile.id
+                config.update(profile_data)
                 device.config = json.dumps(config)
                 if device.is_online():
                     hss.emit(device.get_sid(), 'config', device.config)
@@ -1544,7 +1690,16 @@ class HSSOperator:
         HSSOperator.sid_device_id_link[soc.sid] = device.id
         soc.emit('login', True)
         soc.emit('config', device.config)
-        soc.set_asking_timeout(5 if User.is_online_by_mail(device.user.mail) else 15)
+        soc.set_asking_timeout(14)
+        for action in device.offline_actions:  # type: OfflineAction
+            soc.emit(action.name, action.value)
+
+            if action.name == 'unblock_ip':
+                ban = Ban.query.filter_by(device=device, ip=action.value)
+                if ban is not None:
+                    ban.delete()
+
+            action.delete()
         [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
 
     @staticmethod
