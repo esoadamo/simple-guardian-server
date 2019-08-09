@@ -330,6 +330,8 @@ class Device(db.Model):
         :return: None
         """
         [[item.delete() for item in items] for items in [self.attacks, self.bans, self.offline_actions]]
+        if self.is_online():
+            del HSSOperator.sid_device_id_link[self.get_sid()]
         self.__class__.query.filter_by(id=self.id).delete()
 
     @staticmethod
@@ -382,7 +384,8 @@ class Device(db.Model):
         """
         if sid not in SID_LOGGED_IN:
             return
-        Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first()).delete()
+        device = Device.query.filter_by(uid=device_id, user=User.query.filter_by(mail=SID_LOGGED_IN[sid]).first())
+        device.delete()
         db.session.commit()
         Device.list_for_user(sid)
 
@@ -513,7 +516,7 @@ def init_api():
 
     @app.route("/api/user/delete")
     def api_user_delete():
-        user = get_user()
+        user = get_user()  # type: User
         if type(user) == Response:
             return user
 
@@ -867,12 +870,12 @@ def init_api():
             return user
 
         device_uid = request.json.get('id', '').strip()
-        device = Device.query.filter_by(uid=device_uid, user=user).first()
+        device = Device.query.filter_by(uid=device_uid, user=user).first()  # type: Device
 
         if device is None:
             return make_respond({'success': False, 'message': 'Device does not exist'})
 
-        Device.query.filter_by(uid=device_uid, user=user).delete()
+        device.delete()
         db.session.commit()
         return make_respond({'success': True, 'message': 'Device deleted'})
 
