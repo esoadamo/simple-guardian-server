@@ -19,6 +19,7 @@ try:
     from uuid import uuid4
     from queue import Queue
     from flask import Flask, render_template, session, request, redirect, url_for, make_response, abort, Response
+    from flask import send_from_directory
     from flask_sqlalchemy import SQLAlchemy
     from flask_cors import CORS
     from sqlalchemy.orm import joinedload
@@ -927,6 +928,22 @@ def init_api():
         [Device.list_for_user(sid, asynchronous=True) for sid in User.list_sids_by_mail(device.user.mail)]
         return json.dumps({'service': 'simple-guardian',
                            'device_id': device_id, 'device_secret': device.secret, 'server_url': request.host_url})
+
+    @app.route("/api/tutorial/list")
+    def api_tutorial_list():  # type: () -> "json file"
+        return send_from_directory('static/tutorials', 'list.json')
+
+    @app.route("/api/tutorial/<int:article_id>")
+    def api_tutorial_get(article_id):  # type: (int) -> "md file"
+        if article_id < 0:
+            abort(404)
+            return
+        with open('static/tutorials/list.json', 'r') as f:
+            articles = json.load(f)
+        if article_id >= len(articles):
+            abort(404)
+            return
+        return send_from_directory('static/tutorials', articles[article_id]['text'])
 
 
 def init_old_web_ui():
