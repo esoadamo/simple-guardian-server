@@ -8,5 +8,13 @@
     "title": "Registration & first setup",
     "text": "registration.md",
     "video": "https://player.vimeo.com/video/353449843"
+  },
+  {
+    "title": "Plans for future",
+    "text": "todo.md"
+  },
+  {
+    "title": "Changelog",
+    "text": "changelog.md"
   }
 ]
