@@ -11,7 +11,7 @@ eventlet==0.25.2
 Flask==1.1.2
 Flask-Cors==3.0.8
 Flask-SQLAlchemy==2.4.3
-greenlet==0.4.15
+greenlet==0.4.16
 idna==2.9
 itsdangerous==1.1.0
 Jinja2==2.11.2
