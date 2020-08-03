@@ -7,7 +7,7 @@ Click==7.1.2
 colorclass==2.2.0
 dnspython==2.0.0
 docopt==0.6.2
-eventlet==0.25.2
+eventlet==0.26.1
 Flask==1.1.2
 Flask-Cors==3.0.8
 Flask-SQLAlchemy==2.4.4
@@ -19,7 +19,7 @@ MarkupSafe==1.1.1
 monotonic==1.5
 packaging==20.4
 pip-upgrader==1.4.15
-pipupgrade==1.7.3
+pipupgrade==1.7.4
 pycparser==2.20
 pycryptodome==3.9.8
 pyparsing==2.4.7
