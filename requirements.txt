@@ -21,7 +21,7 @@ packaging==20.4
 pip-upgrader==1.4.15
 pipupgrade==1.7.4
 pycparser==2.20
-pycryptodome==3.9.8
+pycryptodome==3.9.9
 pyparsing==2.4.7
 python-engineio==3.13.2
 python-socketio==4.6.0
