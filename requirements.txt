@@ -5,7 +5,7 @@ cffi==1.14.4
 chardet==4.0.0
 Click==7.1.2
 colorclass==2.2.0
-dnspython==2.0.0
+dnspython==2.1.0
 docopt==0.6.2
 eventlet==0.30.0
 Flask==1.1.2
@@ -19,7 +19,7 @@ MarkupSafe==1.1.1
 monotonic==1.5
 packaging==20.8
 pip-upgrader==1.4.15
-pipupgrade==1.7.4
+pipupgrade==1.8.0
 pycparser==2.20
 pycryptodome==3.9.9
 pyparsing==2.4.7
