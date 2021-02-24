@@ -19,7 +19,7 @@ MarkupSafe==1.1.1
 monotonic==1.5
 packaging==20.9
 pip-upgrader==1.4.15
-pipupgrade==1.8.4
+pipupgrade==1.9.0
 pycparser==2.20
 pycryptodome==3.10.1
 pyparsing==2.4.7
